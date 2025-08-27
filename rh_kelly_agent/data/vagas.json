@@ -1,0 +1,26 @@
+[
+  {
+    "CIDADE": "São Paulo",
+    "STATUS": "Aberto",
+    "VAGAS_RESTANTES": 5,
+    "TURNO": "Manhã"
+  },
+  {
+    "CIDADE": "São Paulo",
+    "STATUS": "Aberto",
+    "VAGAS_RESTANTES": 3,
+    "TURNO": "Tarde"
+  },
+  {
+    "CIDADE": "Rio de Janeiro",
+    "STATUS": "Fechado",
+    "VAGAS_RESTANTES": 0,
+    "TURNO": "Noite"
+  },
+  {
+    "CIDADE": "Uberlândia",
+    "STATUS": "Aberto",
+    "VAGAS_RESTANTES": 2,
+    "TURNO": "Noite"
+  }
+]
