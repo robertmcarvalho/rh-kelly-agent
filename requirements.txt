@@ -3,6 +3,7 @@ uvicorn
 requests
 python-dotenv
 google-generativeai
+google-genai
 google-cloud-aiplatform
 google-adk
 redis

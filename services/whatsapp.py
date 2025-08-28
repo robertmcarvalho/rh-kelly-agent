@@ -244,26 +244,6 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
             "options": parsed.get("options") if isinstance(parsed.get("options"), list) else None,
         }
     return {"content": last_text or "", "options": None}
-    # Exemplo estruturado: preferir JSON {content, options}
-    content = resposta.get("content")
-    options = resposta.get("options")
-    if not options:
-        parsed = _parse_first_json(content or "")
-        if isinstance(parsed, dict):
-            if isinstance(parsed.get("options"), list):
-                options = parsed.get("options")
-            if isinstance(parsed.get("content"), str):
-                content = parsed.get("content")
-
-    if options:
-        if len(options) > 3:
-            send_list_message(destino, content or "Selecione uma opcao:", options)
-        else:
-            send_button_message(destino, content or "Selecione uma opcao:", options)
-    else:
-        send_text_message(destino, content or "Desculpe, nao consegui entender.")
-        }
-    return {"content": last_text or "", "options": None}
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
