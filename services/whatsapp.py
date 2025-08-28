@@ -322,6 +322,22 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     _send_turno_menu(destino, cidade)
     return {"handled": True}
 
+def _send_city_menu(destino: str) -> None:
+    """Envia saudação fixa e menu de cidades sem usar LLM."""
+    cache = _get_cities_cached()
+    cities = cache.get("items", []) or []
+    if not cities:
+        send_text_message(destino, "No momento, nao consegui obter as cidades com vagas.")
+        return
+    greeting = (
+        "Ola, meu nome e Kelly e sou especialista em recrutamento da nossa "
+        "cooperativa de entregas. Quais cidades te interessam? Temos vagas abertas em:"
+    )
+    if len(cities) > 3:
+        send_list_message(destino, greeting, cities, botao="Ver cidades")
+    else:
+        send_button_message(destino, greeting, cities)
+
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
     Processa a resposta do ADK e envia ao usuÃ¡rio via WhatsApp.
@@ -441,6 +457,20 @@ async def handle_webhook(request: Request):
                 return {"status": "handled"}
         except Exception as sel_exc:
             print(f"city selection handler error: {sel_exc}")
+
+        # Se nao ha cidade no contexto, envia saudacao fixa + menu de cidades
+        try:
+            ctx = _USER_CTX.get(from_number) or {}
+            if not ctx.get("cidade"):
+                matched = _match_city(texto_usuario)
+                if matched:
+                    handled = _handle_city_selection(from_number, from_number, matched)
+                    if handled.get("handled"):
+                        return {"status": "handled"}
+                _send_city_menu(from_number)
+                return {"status": "handled"}
+        except Exception as greet_exc:
+            print(f"greeting/menu error: {greet_exc}")
         # Encaminha a entrada ao agente com tratamento de falhas (async)
         try:
             agent_response = await enviar_mensagem_ao_agente_async(from_number, texto_usuario)
@@ -551,13 +581,14 @@ def config_check():
 def llm_ping():
     """Executa uma chamada mÃ­nima ao modelo Gemini para verificar conectividade."""
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model_name = os.environ.get("AGENT_MODEL", "gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name)
         resp = model.generate_content("ping")
         # Extrai texto quando disponÃ­vel
         out = getattr(resp, "text", None)
         return {
             "status": "ok",
-            "model": "gemini-1.5-flash",
+            "model": model_name,
             "has_text": bool(out),
             "text": out,
         }
