@@ -186,13 +186,25 @@ async def handle_webhook(request: Request):
                     )
         except Exception:
             pass
-        # Encaminha a entrada ao agente
-        agent_response = enviar_mensagem_ao_agente(from_number, texto_usuario)
-        # Processa e envia de volta via WhatsApp
-        processar_resposta_do_agente(from_number, agent_response)
+        # Encaminha a entrada ao agente com tratamento de falhas
+        try:
+            agent_response = enviar_mensagem_ao_agente(from_number, texto_usuario)
+            # Processa e envia de volta via WhatsApp
+            processar_resposta_do_agente(from_number, agent_response)
+        except Exception as inner_exc:
+            print(f"Agent pipeline error: {inner_exc}")
+            # Envia fallback simples para o usuário e segue com 200
+            try:
+                send_text_message(
+                    from_number,
+                    "Não consegui processar sua mensagem agora. Tente novamente em instantes.",
+                )
+            except Exception as send_err:
+                print(f"Fallback send error: {send_err}")
         return {"status": "handled"}
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        print(f"Webhook error: {exc}")
+        return {"status": "ignored", "error": str(exc)}
 
 # ---------------------------------------------------------------------------
 # Endpoint auxiliar para testes de envio de texto
