@@ -302,6 +302,10 @@ def _send_turno_menu(destino: str, cidade: str) -> None:
             seen.add(t)
             turnos.append(t)
     content = f"Cidade selecionada: {cidade}. Escolha um turno disponível:"
+    try:
+        print(f"city={cidade!r} turnos={turnos}")
+    except Exception:
+        pass
     if not turnos:
         send_text_message(destino, f"Cidade selecionada: {cidade}. Existem vagas, mas nao consegui listar turnos agora.")
         return
@@ -402,15 +406,23 @@ async def handle_webhook(request: Request):
                 interactive = msg.get("interactive", {})
                 itype = interactive.get("type")
                 if itype == "button_reply":
-                    texto_usuario = (
-                        interactive.get("button_reply", {}).get("id")
-                        or interactive.get("button_reply", {}).get("title", "")
-                    )
+                    br = interactive.get("button_reply", {})
+                    bid = br.get("id")
+                    btitle = br.get("title", "")
+                    texto_usuario = bid or btitle
+                    try:
+                        print(f"interactive button_reply id={bid!r} title={btitle!r}")
+                    except Exception:
+                        pass
                 elif itype == "list_reply":
-                    texto_usuario = (
-                        interactive.get("list_reply", {}).get("id")
-                        or interactive.get("list_reply", {}).get("title", "")
-                    )
+                    lr = interactive.get("list_reply", {})
+                    lid = lr.get("id")
+                    ltitle = lr.get("title", "")
+                    texto_usuario = lid or ltitle
+                    try:
+                        print(f"interactive list_reply id={lid!r} title={ltitle!r}")
+                    except Exception:
+                        pass
         except Exception:
             texto_usuario = ""
 
@@ -422,6 +434,10 @@ async def handle_webhook(request: Request):
         try:
             handled = _handle_city_selection(from_number, from_number, texto_usuario)
             if handled.get("handled"):
+                try:
+                    print(f"city matched OK -> {handled}")
+                except Exception:
+                    pass
                 return {"status": "handled"}
         except Exception as sel_exc:
             print(f"city selection handler error: {sel_exc}")
