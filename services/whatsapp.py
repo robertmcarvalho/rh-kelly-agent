@@ -17,8 +17,10 @@ ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do AD
 
 import os
 import requests
-from fastapi import FastAPI, Request, HTTPException
-from typing import List, Dict, Any
+from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
 
 # ---------------------------------------------------------------------------
 # Funções utilitárias de envio de mensagem
@@ -128,7 +130,8 @@ def verify_webhook(request: Request):
         request.query_params.get("hub.mode") == "subscribe"
         and request.query_params.get("hub.verify_token") == verify_token
     ):
-        return int(request.query_params.get("hub.challenge"))
+        challenge = request.query_params.get("hub.challenge", "")
+        return PlainTextResponse(content=str(challenge))
     raise HTTPException(status_code=403, detail="Invalid verification token")
 
 @app.post("/webhook")
@@ -145,7 +148,7 @@ async def handle_webhook(request: Request):
     data = await request.json()
     try:
         # A estrutura real do webhook pode variar; ajuste conforme a configuração do Meta.
-        entry = data["entry"][0]["changes"][0]["value"]
+        entry = data.get("entry", [{}])[0].get("changes", [{}])[0].get("value", {})
         messages = entry.get("messages")
         if not messages:
             return {"status": "ignored"}
@@ -160,6 +163,29 @@ async def handle_webhook(request: Request):
             texto_usuario = msg["text"]["body"]
         else:
             texto_usuario = ""
+
+        # Ajuste de compatibilidade com WhatsApp Cloud API (interactive replies)
+        # e robustez para o campo 'from'. Recalcula se necessário antes de chamar o agente.
+        try:
+            from_number = msg.get("from", from_number)
+        except Exception:
+            from_number = msg.get("from", "")
+        try:
+            if not texto_usuario and msg.get("type") == "interactive":
+                interactive = msg.get("interactive", {})
+                itype = interactive.get("type")
+                if itype == "button_reply":
+                    texto_usuario = (
+                        interactive.get("button_reply", {}).get("id")
+                        or interactive.get("button_reply", {}).get("title", "")
+                    )
+                elif itype == "list_reply":
+                    texto_usuario = (
+                        interactive.get("list_reply", {}).get("id")
+                        or interactive.get("list_reply", {}).get("title", "")
+                    )
+        except Exception:
+            pass
         # Encaminha a entrada ao agente
         agent_response = enviar_mensagem_ao_agente(from_number, texto_usuario)
         # Processa e envia de volta via WhatsApp
@@ -167,6 +193,40 @@ async def handle_webhook(request: Request):
         return {"status": "handled"}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+# ---------------------------------------------------------------------------
+# Endpoint auxiliar para testes de envio de texto
+# ---------------------------------------------------------------------------
+
+class SendTextRequest(BaseModel):
+    to: str
+    text: str
+
+
+@app.post("/send-text")
+def send_text_endpoint(payload: SendTextRequest, authorization: Optional[str] = Header(default=None)):
+    """Endpoint opcional para disparar uma mensagem de texto de teste.
+
+    Se a varivel de ambiente INTERNAL_API_TOKEN estiver definida, exige cabealho
+    Authorization: Bearer <token>. Caso no esteja, o endpoint fica aberto.
+    """
+    required_token = os.environ.get("INTERNAL_API_TOKEN")
+    if required_token:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing Bearer token")
+        token = authorization.split(" ", 1)[1]
+        if token != required_token:
+            raise HTTPException(status_code=403, detail="Invalid token")
+    try:
+        send_text_message(payload.to, payload.text)
+        return {"status": "sent"}
+    except requests.HTTPError as http_err:
+        # Retorna o corpo de erro da API Meta, se disponvel
+        status = getattr(http_err.response, "status_code", 500)
+        detail = getattr(http_err.response, "text", str(http_err))
+        raise HTTPException(status_code=status, detail=detail)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 if __name__ == "__main__":
     import uvicorn

@@ -11,7 +11,7 @@ import urllib.request
 from typing import Dict, List, Optional
 
 from google.adk.agents import Agent
-# from adk.memory import RedisMemory  # importa o backend Redis
+from google.adk.memory import RedisMemory  # backend de memória Redis
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
