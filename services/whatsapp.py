@@ -81,6 +81,38 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
     response = requests.post(url, headers=_get_auth_headers(), json=payload)
     response.raise_for_status()
 
+def _extract_options_from_text(text: Optional[str]) -> List[str]:
+    """Heurística simples para extrair opções do texto do agente.
+
+    Ex.: "Por favor, escolha uma das cidades disponíveis: Apucarana ou Uberlândia."
+    -> ["Apucarana", "Uberlândia"]
+    """
+    if not text:
+        return []
+    s = text
+    # Busca trecho após dois pontos e antes do fim/sentença
+    import re
+    m = re.search(r":\s*([^\n\r]+)$", s) or re.search(r":\s*([^\.!?]+)[\.!?]", s)
+    if not m:
+        return []
+    region = m.group(1)
+    # Normaliza conectivos
+    region = region.replace(" ou ", ", ")
+    region = region.replace(" e ", ", ")
+    # Separa por vírgulas
+    parts = [p.strip() for p in region.split(",") if p.strip()]
+    # Filtra partes muito curtas ou com números (evita ruído)
+    parts = [p for p in parts if len(p) >= 2 and not any(ch.isdigit() for ch in p)]
+    # Evita duplicatas preservando ordem
+    seen = set()
+    out: List[str] = []
+    for p in parts:
+        if p not in seen:
+            out.append(p)
+            seen.add(p)
+    # Limita a 3 botões (limite de UI usual)
+    return out[:3]
+
 # ---------------------------------------------------------------------------
 # Funções para comunicação com o ADK via api_server
 # ---------------------------------------------------------------------------
@@ -131,8 +163,13 @@ def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None
     # Exemplo simplificado:
     content = resposta.get("content")
     options = resposta.get("options")  # Ex.: lista de strings para botões
+    # Heurística: se não veio options mas o texto aparenta listar escolhas, gera botões
+    if not options:
+        inferred = _extract_options_from_text(content or "")
+        if len(inferred) >= 2:
+            options = inferred
+
     if options:
-        # Envia menu com botões
         send_button_message(destino, content or "Selecione uma opção:", options)
     else:
         send_text_message(destino, content or "Desculpe, não consegui entender.")
@@ -180,7 +217,7 @@ async def handle_webhook(request: Request):
         if not messages:
             return {"status": "ignored"}
         msg = messages[0]
-        from_number = msg["from"]  # telefone do usuário
+        from_number = msg.get("from", "")  # telefone do usuário
         # Determina se é uma resposta a botão
         if msg.get("type") == "button":
             # 'button' contém o id do botão, ex.: 'opcao_1'
