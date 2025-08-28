@@ -12,7 +12,10 @@ from typing import Dict, List, Optional
 
 from google.adk.agents import Agent
 import google.generativeai as genai  # ensure explicit config for old SDK
-import google.genai as genai2  # ensure explicit config for new SDK used by ADK
+try:
+    import google.genai as genai2  # newer SDK used by ADK
+except Exception:
+    genai2 = None
 
 # Importa RedisMemory de forma segura apenas se necessário,
 # evitando quebrar o start caso o módulo/rota não exista no ambiente.
@@ -39,10 +42,11 @@ try:
             genai.configure(api_key=_API_KEY)
         except Exception as _cfg1:
             print(f"google.generativeai configure error: {_cfg1}")
-        try:
-            genai2.configure(api_key=_API_KEY)
-        except Exception as _cfg2:
-            print(f"google.genai configure error: {_cfg2}")
+        if genai2 is not None and hasattr(genai2, "configure"):
+            try:
+                genai2.configure(api_key=_API_KEY)
+            except Exception as _cfg2:
+                print(f"google.genai configure error: {_cfg2}")
 except Exception as _cfg_exc:  # log but do not crash
     print(f"genai dual configure error: {_cfg_exc}")
 

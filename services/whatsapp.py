@@ -69,10 +69,22 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
     """
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
-    buttons_payload = [
-        {"type": "reply", "reply": {"id": f"opcao_{i+1}", "title": label}}
-        for i, label in enumerate(botoes)
-    ]
+    # WhatsApp limits: title 1..20 chars (no newlines). Sanitize labels.
+    def _sanitize_button_title(txt: str, idx: int) -> str:
+        t = (txt or "").strip().replace("\n", " ")
+        if not t:
+            t = f"Opcao {idx+1}"
+        if len(t) > 20:
+            t = t[:20]
+        return t
+
+    buttons_payload = []
+    for i, label in enumerate(botoes):
+        title = _sanitize_button_title(str(label), i)
+        buttons_payload.append({
+            "type": "reply",
+            "reply": {"id": f"opcao_{i+1}", "title": title}
+        })
     payload = {
         "messaging_product": "whatsapp",
         "to": destino,
@@ -102,7 +114,15 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
     """
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
-    rows = [{"id": f"opcao_{i+1}", "title": str(opt)} for i, opt in enumerate(opcoes)]
+    # WhatsApp list row title max 24 chars. Sanitize.
+    def _sanitize_row_title(txt: str, idx: int) -> str:
+        t = (txt or "").strip().replace("\n", " ")
+        if not t:
+            t = f"Opcao {idx+1}"
+        if len(t) > 24:
+            t = t[:24]
+        return t
+    rows = [{"id": f"opcao_{i+1}", "title": _sanitize_row_title(str(opt), i)} for i, opt in enumerate(opcoes)]
     payload = {
         "messaging_product": "whatsapp",
         "to": destino,
