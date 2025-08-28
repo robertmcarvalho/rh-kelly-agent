@@ -314,6 +314,7 @@ async def handle_webhook(request: Request):
         messages = entry.get("messages")
         if not messages:
             return {"status": "ignored"}
+        msg = messages[0]
         from_number = msg.get("from", "")  # telefone do usuario
 
         # Nao injeta saudacao/menu aqui: o ADK conduz o fluxo inicial
