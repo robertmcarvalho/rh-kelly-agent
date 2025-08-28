@@ -96,9 +96,26 @@ def enviar_mensagem_ao_agente(user_id: str, mensagem: str) -> Dict[str, Any]:
     """
     Envia a entrada do usuário para o agente ADK e retorna a resposta.
     """
-    # Processa a mensagem diretamente com o agente
-    response = root_agent.process_message(user_id, mensagem)
-    return response
+    # Usa Runner do ADK para processar a mensagem e extrair texto da resposta
+    try:
+        sess = _session_service.get_session_sync(app_name=_APP_NAME, user_id=user_id, session_id=user_id)
+    except Exception:
+        sess = None
+    if not sess:
+        _session_service.create_session_sync(app_name=_APP_NAME, user_id=user_id, session_id=user_id)
+
+    content = genai_types.Content(parts=[genai_types.Part(text=str(mensagem or ""))])
+    last_text = None
+    for event in _runner.run(user_id=user_id, session_id=user_id, new_message=content):
+        try:
+            if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
+                parts = getattr(event.content, "parts", None) or []
+                texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+                if texts:
+                    last_text = "\n".join(texts).strip()
+        except Exception:
+            pass
+    return {"content": last_text or ""}
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
