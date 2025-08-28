@@ -11,7 +11,19 @@ import urllib.request
 from typing import Dict, List, Optional
 
 from google.adk.agents import Agent
-from google.adk.memory import RedisMemory  # backend de memória Redis
+
+# Importa RedisMemory de forma segura apenas se necessário,
+# evitando quebrar o start caso o módulo/rota não exista no ambiente.
+try:
+    from typing import TYPE_CHECKING
+    _REDIS_URL = os.environ.get("REDIS_URL")
+    if _REDIS_URL:
+        # Import lazy para só tentar quando REDIS_URL estiver definido
+        from google.adk.memory import RedisMemory  # type: ignore
+    else:
+        RedisMemory = None  # type: ignore
+except Exception:  # pragma: no cover
+    RedisMemory = None  # type: ignore
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
@@ -162,5 +174,5 @@ root_agent = Agent(
 
 # Configura o backend de memória para usar Redis. A URI é lida da variável REDIS_URL.
 redis_url = os.environ.get("REDIS_URL")
-if redis_url:
+if redis_url and RedisMemory is not None:
     root_agent.memory_backend = RedisMemory(url=redis_url)
