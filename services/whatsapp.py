@@ -173,6 +173,80 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
         print(f"WhatsApp send_list_message error: {detail}")
         raise
 
+def send_button_message_pairs(destino: str, corpo: str, pairs: List[Any]) -> None:
+    """Envia botões com id e título separados.
+
+    pairs: lista de tuplas (id, title) ou dicts {id,title}.
+    Mantém reply.id completo e sanitiza apenas o título (≤20 chars).
+    """
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    def _sanitize_title(t: str) -> str:
+        s = (t or "").strip().replace("\n", " ")
+        if not s:
+            s = "Opcao"
+        return s[:20] if len(s) > 20 else s
+    buttons_payload = []
+    for item in pairs:
+        if isinstance(item, dict):
+            _id = str(item.get("id"))
+            _title = _sanitize_title(str(item.get("title")))
+        else:
+            _id = str(item[0])
+            _title = _sanitize_title(str(item[1]))
+        buttons_payload.append({"type": "reply", "reply": {"id": _id, "title": _title}})
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": corpo},
+            "action": {"buttons": buttons_payload},
+        },
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_button_message_pairs error: {detail}")
+        raise
+
+def send_list_message_rows(destino: str, corpo: str, rows_in: List[Any], botao: str = "Ver opcoes") -> None:
+    """Envia lista com rows custom (id, title)."""
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    def _sanitize_row_title(txt: str, idx: int) -> str:
+        t = (txt or "").strip().replace("\n", " ")
+        return t[:24] if len(t) > 24 else t
+    rows = []
+    for idx, item in enumerate(rows_in):
+        if isinstance(item, dict):
+            _id = str(item.get("id"))
+            _title = _sanitize_row_title(str(item.get("title")), idx)
+        else:
+            _id = str(item[0])
+            _title = _sanitize_row_title(str(item[1]), idx)
+        rows.append({"id": _id, "title": _title})
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": corpo},
+            "action": {"button": botao, "sections": [{"rows": rows}]},
+        },
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_list_message_rows error: {detail}")
+        raise
+
 def _extract_options_from_text(text: Optional[str]) -> List[str]:
     """HeurÃ­stica simples para extrair opÃ§Ãµes do texto do agente.
 
@@ -461,33 +535,32 @@ def _send_vagas_menu(destino: str, cidade: str) -> None:
     if not vagas:
         send_text_message(destino, f"Aprovado! Porem, nao encontrei vagas listadas agora para {cidade}.")
         return
-    # Corpo com detalhes e rows compactos
+    # Corpo com detalhes completos e rows curtos
     lines = ["Vagas disponiveis:"]
-    rows_labels = []
+    rows_labels = []  # (id, title curto)
     for v in vagas:
         vid = str(v.get("vaga_id") or v.get("VAGA_ID") or "?")
         farm = str(v.get("farmacia") or v.get("FARMACIA") or "?")
         turno = str(v.get("turno") or v.get("TURNO") or "?")
         taxa = str(v.get("taxa_entrega") or v.get("TAXA_ENTREGA") or "?")
-        lines.append(f"ID {vid} | {farm} | {turno} | {taxa}")
+        lines.append(f"ID {vid} | Farmacia: {farm} | Turno: {turno} | Taxa: {taxa}")
         rows_labels.append((vid, f"ID {vid} - {turno}"))
     body = "\n".join(lines)
-    # Envia lista (rows.id = VAGA_ID)
-    ids = [title for (_id, title) in rows_labels]
-    if len(ids) > 3:
-        # List message usa _sanitize_row_title interno para 24 chars
-        send_list_message(destino, body, [title for (_id, title) in rows_labels], botao="Ver vagas")
+    # Envia menu com id=VAGA_ID e titulos curtos
+    if len(rows_labels) > 3:
+        send_list_message_rows(destino, body, rows_labels, botao="Ver vagas")
     else:
-        send_button_message(destino, "Escolha uma vaga (veja detalhes acima)", [title for (_id, title) in rows_labels])
+        send_button_message_pairs(destino, "Escolha uma vaga (veja detalhes acima)", rows_labels)
 
 def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
     vagas = _fetch_vagas_by_city(cidade)
     t = (title_or_id or "").strip()
-    # Primeiro tenta por ID (prefixo "ID ")
+    # Preferir id puro (quando usamos pairs/rows). Se vier "ID X - ...", extrai X.
+    vid = t
     if t.lower().startswith("id "):
-        vid = t.split(" ", 2)[1]
-    else:
-        vid = t
+        parts = t.split(" ", 2)
+        if len(parts) >= 2:
+            vid = parts[1]
     for v in vagas:
         if str(v.get("vaga_id") or v.get("VAGA_ID")) == vid:
             return v
@@ -778,6 +851,15 @@ async def handle_webhook(request: Request):
                     except Exception as _e:
                         print(f"pipefy link error: {_e}")
                         link_url = None
+                    # Reapresenta detalhes completos antes do link
+                    det_vid = ctx["vaga"].get("VAGA_ID")
+                    det_farm = ctx["vaga"].get("FARMACIA")
+                    det_turno = ctx["vaga"].get("TURNO")
+                    det_taxa = ctx["vaga"].get("TAXA_ENTREGA")
+                    send_text_message(from_number, (
+                        f"Vaga selecionada:\n"
+                        f"- ID: {det_vid}\n- Farmacia: {det_farm}\n- Turno: {det_turno}\n- Taxa: {det_taxa}"
+                    ))
                     send_text_message(from_number, (
                         f"Otimo! Para concluir sua matricula, preencha o formulario: {link_url or 'link indisponivel'}.\n"
                         "Nossa equipe entrara em contato em ate 48 horas. Obrigada!"
