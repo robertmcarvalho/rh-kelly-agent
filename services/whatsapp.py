@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
+import google.generativeai as genai
 from typing import List, Dict, Any, Optional
 
 # ---------------------------------------------------------------------------
@@ -291,6 +292,27 @@ def config_check():
             "port": port,
         },
     }
+
+
+@app.get("/llm-ping")
+def llm_ping():
+    """Executa uma chamada mínima ao modelo Gemini para verificar conectividade."""
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resp = model.generate_content("ping")
+        # Extrai texto quando disponível
+        out = getattr(resp, "text", None)
+        return {
+            "status": "ok",
+            "model": "gemini-1.5-flash",
+            "has_text": bool(out),
+            "text": out,
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+        }
 
 if __name__ == "__main__":
     import uvicorn
