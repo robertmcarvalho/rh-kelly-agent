@@ -50,7 +50,12 @@ def send_text_message(destino: str, texto: str) -> None:
         "text": {"body": texto},
     }
     response = requests.post(url, headers=_get_auth_headers(), json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_text_message error: {detail}")
+        raise
 
 def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
     """
@@ -79,7 +84,12 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
         },
     }
     response = requests.post(url, headers=_get_auth_headers(), json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_button_message error: {detail}")
+        raise
 
 def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = "Ver opções") -> None:
     """Envia uma mensagem interativa do tipo "list" para mais de 3 opções.
@@ -109,7 +119,12 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
         },
     }
     response = requests.post(url, headers=_get_auth_headers(), json=payload)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_list_message error: {detail}")
+        raise
 
 def _extract_options_from_text(text: Optional[str]) -> List[str]:
     """Heurística simples para extrair opções do texto do agente.
@@ -155,6 +170,28 @@ _APP_NAME = "rh_kelly_agent"
 _session_service = InMemorySessionService()
 _runner = Runner(app_name=_APP_NAME, agent=root_agent, session_service=_session_service)
 
+async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[str, Any]:
+    """Versão assíncrona usando Runner.run_async e SessionService async."""
+    sess = await _session_service.get_session(
+        app_name=_APP_NAME, user_id=user_id, session_id=user_id
+    )
+    if not sess:
+        await _session_service.create_session(
+            app_name=_APP_NAME, user_id=user_id, session_id=user_id
+        )
+
+    content = genai_types.Content(parts=[genai_types.Part(text=str(mensagem or ""))])
+    last_text = None
+    async for event in _runner.run_async(user_id=user_id, session_id=user_id, new_message=content):
+        try:
+            if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
+                parts = getattr(event.content, "parts", None) or []
+                texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+                if texts:
+                    last_text = "\n".join(texts).strip()
+        except Exception:
+            pass
+    return {"content": last_text or ""}
 def enviar_mensagem_ao_agente(user_id: str, mensagem: str) -> Dict[str, Any]:
     """
     Envia a entrada do usuário para o agente ADK e retorna a resposta.
@@ -320,9 +357,9 @@ async def handle_webhook(request: Request):
                     )
         except Exception:
             pass
-        # Encaminha a entrada ao agente com tratamento de falhas
+        # Encaminha a entrada ao agente com tratamento de falhas (async)
         try:
-            agent_response = enviar_mensagem_ao_agente(from_number, texto_usuario)
+            agent_response = await enviar_mensagem_ao_agente_async(from_number, texto_usuario)
             # Processa e envia de volta via WhatsApp
             processar_resposta_do_agente(from_number, agent_response)
         except Exception as inner_exc:
