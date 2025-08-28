@@ -81,6 +81,36 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
     response = requests.post(url, headers=_get_auth_headers(), json=payload)
     response.raise_for_status()
 
+def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = "Ver opções") -> None:
+    """Envia uma mensagem interativa do tipo "list" para mais de 3 opções.
+
+    Args:
+        destino: telefone do destinatário (E.164, ex.: '5511999999999').
+        corpo: texto exibido na mensagem.
+        opcoes: lista de títulos das linhas (cada uma vira uma row).
+        botao: rótulo do botão que abre a lista.
+    """
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    rows = [{"id": f"opcao_{i+1}", "title": str(opt)} for i, opt in enumerate(opcoes)]
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": corpo},
+            "action": {
+                "button": botao,
+                "sections": [
+                    {"title": "Cidades disponíveis", "rows": rows}
+                ],
+            },
+        },
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    response.raise_for_status()
+
 def _extract_options_from_text(text: Optional[str]) -> List[str]:
     """Heurística simples para extrair opções do texto do agente.
 
@@ -110,14 +140,15 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
         if p not in seen:
             out.append(p)
             seen.add(p)
-    # Limita a 3 botões (limite de UI usual)
-    return out[:3]
+    # Mantém todas; quem enviar decide se usa botões (<=3) ou lista (>3)
+    return out
 
 # ---------------------------------------------------------------------------
 # Funções para comunicação com o ADK via api_server
 # ---------------------------------------------------------------------------
 
 from rh_kelly_agent.agent import root_agent
+from rh_kelly_agent.agent import listar_cidades_com_vagas
 
 # Inicializa Runner e SessionService (memória em processo por instância)
 _APP_NAME = "rh_kelly_agent"
@@ -170,7 +201,10 @@ def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None
             options = inferred
 
     if options:
-        send_button_message(destino, content or "Selecione uma opção:", options)
+        if len(options) > 3:
+            send_list_message(destino, content or "Selecione uma opção:", options)
+        else:
+            send_button_message(destino, content or "Selecione uma opção:", options)
     else:
         send_text_message(destino, content or "Desculpe, não consegui entender.")
 
@@ -218,6 +252,41 @@ async def handle_webhook(request: Request):
             return {"status": "ignored"}
         msg = messages[0]
         from_number = msg.get("from", "")  # telefone do usuário
+
+        # Se sessão ainda não existir, enviar saudação + lista completa de cidades e encerrar
+        try:
+            sess = _session_service.get_session_sync(app_name=_APP_NAME, user_id=from_number, session_id=from_number)
+        except Exception:
+            sess = None
+        if not sess:
+            # saudação
+            send_text_message(
+                from_number,
+                (
+                    "Olá, meu nome é Kelly, e sou a agente de recrutamento da nossa cooperativa. "
+                    "É um prazer te conhecer!\n\nAntes de prosseguirmos, preciso saber em qual cidade você atua. "
+                    "Por favor, selecione uma das cidades abaixo:"
+                ),
+            )
+            # cidades via ferramenta
+            try:
+                res = listar_cidades_com_vagas()
+                cidades = res.get("cidades") if isinstance(res, dict) else None
+                if isinstance(cidades, list) and cidades:
+                    cidades_sorted = sorted(set(str(c) for c in cidades))
+                    if len(cidades_sorted) > 3:
+                        send_list_message(from_number, "Escolha sua cidade:", cidades_sorted)
+                    else:
+                        send_button_message(from_number, "Escolha sua cidade:", cidades_sorted)
+            except Exception as _e:
+                # se falhar, apenas segue o fluxo normal
+                pass
+            # cria sessão para este usuário para próximas interações
+            try:
+                _session_service.create_session_sync(app_name=_APP_NAME, user_id=from_number, session_id=from_number)
+            except Exception:
+                pass
+            return {"status": "handled"}
         # Determina se é uma resposta a botão
         if msg.get("type") == "button":
             # 'button' contém o id do botão, ex.: 'opcao_1'
