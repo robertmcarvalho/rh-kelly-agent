@@ -1,17 +1,17 @@
-"""
-whatsapp.py – Integração entre o agente ADK e a API oficial do WhatsApp.
+﻿"""
+whatsapp.py â€“ IntegraÃ§Ã£o entre o agente ADK e a API oficial do WhatsApp.
 
-Este módulo define utilitários para enviar mensagens de texto e menus interativos
-(com botões) via WhatsApp Business API, além de um serviço web (FastAPI) que
-recebe webhooks de mensagens de usuários, encaminha a entrada ao ADK e envia a
-resposta apropriada de volta ao usuário. Ajuste as rotas e lógicas conforme sua
-necessidade de negócio.
+Este mÃ³dulo define utilitÃ¡rios para enviar mensagens de texto e menus interativos
+(com botÃµes) via WhatsApp Business API, alÃ©m de um serviÃ§o web (FastAPI) que
+recebe webhooks de mensagens de usuÃ¡rios, encaminha a entrada ao ADK e envia a
+resposta apropriada de volta ao usuÃ¡rio. Ajuste as rotas e lÃ³gicas conforme sua
+necessidade de negÃ³cio.
 
-Para funcionar, defina as seguintes variáveis de ambiente no .env ou no sistema:
+Para funcionar, defina as seguintes variÃ¡veis de ambiente no .env ou no sistema:
 
 WHATSAPP_ACCESS_TOKEN=<seu token permanente do WhatsApp Business>
-WHATSAPP_PHONE_NUMBER_ID=<ID do número de telefone WhatsApp Business>
-VERIFY_TOKEN=<uma string secreta para a verificação do webhook>
+WHATSAPP_PHONE_NUMBER_ID=<ID do nÃºmero de telefone WhatsApp Business>
+VERIFY_TOKEN=<uma string secreta para a verificaÃ§Ã£o do webhook>
 ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do ADK
 """
 
@@ -28,11 +28,11 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
 # ---------------------------------------------------------------------------
-# Funções utilitárias de envio de mensagem
+# FunÃ§Ãµes utilitÃ¡rias de envio de mensagem
 # ---------------------------------------------------------------------------
 
 def _get_auth_headers() -> Dict[str, str]:
-    """Obtém os cabeçalhos de autenticação para a API do WhatsApp."""
+    """ObtÃ©m os cabeÃ§alhos de autenticaÃ§Ã£o para a API do WhatsApp."""
     token = os.environ["WHATSAPP_ACCESS_TOKEN"]
     return {
         "Authorization": f"Bearer {token}",
@@ -62,9 +62,9 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
     Envia uma mensagem interativa do tipo "button".
 
     Args:
-        destino: telefone do destinatário (formato internacional, ex.: '5511999999999').
+        destino: telefone do destinatÃ¡rio (formato internacional, ex.: '5511999999999').
         corpo: texto exibido na mensagem (pergunta).
-        botoes: lista de rótulos dos botões a serem exibidos. Cada botão recebe um id
+        botoes: lista de rÃ³tulos dos botÃµes a serem exibidos. Cada botÃ£o recebe um id
                 sequencial (opcao_1, opcao_2, etc.) para identificar a resposta.
     """
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
@@ -104,14 +104,14 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
         print(f"WhatsApp send_button_message error: {detail}")
         raise
 
-def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = "Ver opções") -> None:
-    """Envia uma mensagem interativa do tipo "list" para mais de 3 opções.
+def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = "Ver opÃ§Ãµes") -> None:
+    """Envia uma mensagem interativa do tipo "list" para mais de 3 opÃ§Ãµes.
 
     Args:
-        destino: telefone do destinatário (E.164, ex.: '5511999999999').
+        destino: telefone do destinatÃ¡rio (E.164, ex.: '5511999999999').
         corpo: texto exibido na mensagem.
-        opcoes: lista de títulos das linhas (cada uma vira uma row).
-        botao: rótulo do botão que abre a lista.
+        opcoes: lista de tÃ­tulos das linhas (cada uma vira uma row).
+        botao: rÃ³tulo do botÃ£o que abre a lista.
     """
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
@@ -140,7 +140,7 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
             "action": {
                 "button": botao,
                 "sections": [
-                    {"title": "Cidades disponíveis", "rows": rows}
+                    {"title": "Cidades disponÃ­veis", "rows": rows}
                 ],
             },
         },
@@ -154,15 +154,15 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
         raise
 
 def _extract_options_from_text(text: Optional[str]) -> List[str]:
-    """Heurística simples para extrair opções do texto do agente.
+    """HeurÃ­stica simples para extrair opÃ§Ãµes do texto do agente.
 
-    Ex.: "Por favor, escolha uma das cidades disponíveis: Apucarana ou Uberlândia."
-    -> ["Apucarana", "Uberlândia"]
+    Ex.: "Por favor, escolha uma das cidades disponÃ­veis: Apucarana ou UberlÃ¢ndia."
+    -> ["Apucarana", "UberlÃ¢ndia"]
     """
     if not text:
         return []
     s = text
-    # Busca trecho após dois pontos e antes do fim/sentença
+    # Busca trecho apÃ³s dois pontos e antes do fim/sentenÃ§a
     import re
     m = re.search(r":\s*([^\n\r]+)$", s) or re.search(r":\s*([^\.!?]+)[\.!?]", s)
     if not m:
@@ -171,9 +171,9 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
     # Normaliza conectivos
     region = region.replace(" ou ", ", ")
     region = region.replace(" e ", ", ")
-    # Separa por vírgulas
+    # Separa por vÃ­rgulas
     parts = [p.strip() for p in region.split(",") if p.strip()]
-    # Filtra partes muito curtas ou com números (evita ruído)
+    # Filtra partes muito curtas ou com nÃºmeros (evita ruÃ­do)
     parts = [p for p in parts if len(p) >= 2 and not any(ch.isdigit() for ch in p)]
     # Evita duplicatas preservando ordem
     seen = set()
@@ -182,23 +182,23 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
         if p not in seen:
             out.append(p)
             seen.add(p)
-    # Mantém todas; quem enviar decide se usa botões (<=3) ou lista (>3)
+    # MantÃ©m todas; quem enviar decide se usa botÃµes (<=3) ou lista (>3)
     return out
 
 # ---------------------------------------------------------------------------
-# Funções para comunicação com o ADK via api_server
+# FunÃ§Ãµes para comunicaÃ§Ã£o com o ADK via api_server
 # ---------------------------------------------------------------------------
 
 from rh_kelly_agent.agent import root_agent
 from rh_kelly_agent.agent import listar_cidades_com_vagas
 
-# Inicializa Runner e SessionService (memória em processo por instância)
+# Inicializa Runner e SessionService (memÃ³ria em processo por instÃ¢ncia)
 _APP_NAME = "rh_kelly_agent"
 _session_service = InMemorySessionService()
 _runner = Runner(app_name=_APP_NAME, agent=root_agent, session_service=_session_service)
 
 async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[str, Any]:
-    """Versão assíncrona usando Runner.run_async e SessionService async."""
+    """VersÃ£o assÃ­ncrona usando Runner.run_async e SessionService async."""
     sess = await _session_service.get_session(
         app_name=_APP_NAME, user_id=user_id, session_id=user_id
     )
@@ -221,7 +221,7 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
     return {"content": last_text or ""}
 def enviar_mensagem_ao_agente(user_id: str, mensagem: str) -> Dict[str, Any]:
     """
-    Envia a entrada do usuário para o agente ADK e retorna a resposta.
+    Envia a entrada do usuÃ¡rio para o agente ADK e retorna a resposta.
     """
     # Usa Runner do ADK para processar a mensagem e extrair texto da resposta
     try:
@@ -246,19 +246,19 @@ def enviar_mensagem_ao_agente(user_id: str, mensagem: str) -> Dict[str, Any]:
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
-    Processa a resposta do ADK e envia ao usuário via WhatsApp.
+    Processa a resposta do ADK e envia ao usuÃ¡rio via WhatsApp.
 
     A resposta do ADK pode incluir:
       - 'content': texto simples a ser enviado.
-      - 'function_call': chamada de função (caso o agente indique que deve chamar uma ferramenta).
-      - 'options': lista de strings sugeridas como botões (customização própria).
-    Esta função interpreta esses campos e decide se envia texto ou menu.
+      - 'function_call': chamada de funÃ§Ã£o (caso o agente indique que deve chamar uma ferramenta).
+      - 'options': lista de strings sugeridas como botÃµes (customizaÃ§Ã£o prÃ³pria).
+    Esta funÃ§Ã£o interpreta esses campos e decide se envia texto ou menu.
     Ajuste conforme o formato das respostas do seu agente.
     """
     # Exemplo simplificado:
     content = resposta.get("content")
-    options = resposta.get("options")  # Ex.: lista de strings para botões
-    # Heurística: se não veio options mas o texto aparenta listar escolhas, gera botões
+    options = resposta.get("options")  # Ex.: lista de strings para botÃµes
+    # HeurÃ­stica: se nÃ£o veio options mas o texto aparenta listar escolhas, gera botÃµes
     if not options:
         inferred = _extract_options_from_text(content or "")
         if len(inferred) >= 2:
@@ -266,11 +266,11 @@ def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None
 
     if options:
         if len(options) > 3:
-            send_list_message(destino, content or "Selecione uma opção:", options)
+            send_list_message(destino, content or "Selecione uma opÃ§Ã£o:", options)
         else:
-            send_button_message(destino, content or "Selecione uma opção:", options)
+            send_button_message(destino, content or "Selecione uma opÃ§Ã£o:", options)
     else:
-        send_text_message(destino, content or "Desculpe, não consegui entender.")
+        send_text_message(destino, content or "Desculpe, nÃ£o consegui entender.")
 
 # ---------------------------------------------------------------------------
 # Servidor FastAPI para webhooks
@@ -285,7 +285,7 @@ def healthcheck():
 @app.get("/webhook")
 def verify_webhook(request: Request):
     """
-    Endpoint para a verificação do webhook do WhatsApp (conforme documentação da Meta).
+    Endpoint para a verificaÃ§Ã£o do webhook do WhatsApp (conforme documentaÃ§Ã£o da Meta).
     """
     verify_token = os.environ.get("VERIFY_TOKEN")
     if (
@@ -301,34 +301,32 @@ async def handle_webhook(request: Request):
     """
     Endpoint para receber eventos do WhatsApp.
 
-    - Extrai o número do remetente e a mensagem ou ID do botão.
+    - Extrai o nÃºmero do remetente e a mensagem ou ID do botÃ£o.
     - Envia a entrada ao agente ADK.
     - Processa a resposta do agente e envia de volta via WhatsApp.
 
-    Este exemplo suporta mensagens de texto e cliques em botões (reply.id).
+    Este exemplo suporta mensagens de texto e cliques em botÃµes (reply.id).
     """
     data = await request.json()
     try:
-        # A estrutura real do webhook pode variar; ajuste conforme a configuração do Meta.
+        # A estrutura real do webhook pode variar; ajuste conforme a configuraÃ§Ã£o do Meta.
         entry = data.get("entry", [{}])[0].get("changes", [{}])[0].get("value", {})
         messages = entry.get("messages")
         if not messages:
             return {"status": "ignored"}
-        msg = messages[0]
-        from_number = msg.get("from", "")  # telefone do usuário
+        from_number = msg.get("from", "")  # telefone do usuario
 
-        # N�o injeta sauda��o/menu aqui: o ADK conduz o fluxo inicial
-        # e robustez para o campo 'from'. Recalcula se necessário antes de chamar o agente.
+        # Nao injeta saudacao/menu aqui: o ADK conduz o fluxo inicial
+        # Extrai texto do usuario apenas para tipos suportados
+        texto_usuario = ""
         try:
-            from_number = msg.get("from", from_number)
-        except Exception:
-            from_number = msg.get("from", "")
-        try:
-            if not texto_usuario and msg.get("type") == "interactive":
+            mtype = msg.get("type")
+            if mtype == "text":
+                texto_usuario = msg.get("text", {}).get("body", "")
+            elif mtype == "interactive":
                 interactive = msg.get("interactive", {})
                 itype = interactive.get("type")
                 if itype == "button_reply":
-                    # Preferir o id (valor canônico completo); usar título como fallback visual
                     texto_usuario = (
                         interactive.get("button_reply", {}).get("id")
                         or interactive.get("button_reply", {}).get("title", "")
@@ -339,7 +337,11 @@ async def handle_webhook(request: Request):
                         or interactive.get("list_reply", {}).get("title", "")
                     )
         except Exception:
-            pass
+            texto_usuario = ""
+
+        # Ignora mensagens sem conteudo textual interpretavel
+        if not (texto_usuario or "").strip():
+            return {"status": "ignored"}
         # Encaminha a entrada ao agente com tratamento de falhas (async)
         try:
             agent_response = await enviar_mensagem_ao_agente_async(from_number, texto_usuario)
@@ -347,11 +349,11 @@ async def handle_webhook(request: Request):
             processar_resposta_do_agente(from_number, agent_response)
         except Exception as inner_exc:
             print(f"Agent pipeline error: {inner_exc}")
-            # Envia fallback simples para o usuário e segue com 200
+            # Envia fallback simples para o usuÃ¡rio e segue com 200
             try:
                 send_text_message(
                     from_number,
-                    "Não consegui processar sua mensagem agora. Tente novamente em instantes.",
+                    "NÃ£o consegui processar sua mensagem agora. Tente novamente em instantes.",
                 )
             except Exception as send_err:
                 print(f"Fallback send error: {send_err}")
@@ -396,7 +398,7 @@ def send_text_endpoint(payload: SendTextRequest, authorization: Optional[str] = 
 
 @app.get("/config-check")
 def config_check():
-    """Retorna o status das variáveis de ambiente críticas (sem expor segredos)."""
+    """Retorna o status das variÃ¡veis de ambiente crÃ­ticas (sem expor segredos)."""
     wa_token = os.environ.get("WHATSAPP_ACCESS_TOKEN")
     wa_phone = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
     verify = os.environ.get("VERIFY_TOKEN")
@@ -448,11 +450,11 @@ def config_check():
 
 @app.get("/llm-ping")
 def llm_ping():
-    """Executa uma chamada mínima ao modelo Gemini para verificar conectividade."""
+    """Executa uma chamada mÃ­nima ao modelo Gemini para verificar conectividade."""
     try:
         model = genai.GenerativeModel("gemini-1.5-flash")
         resp = model.generate_content("ping")
-        # Extrai texto quando disponível
+        # Extrai texto quando disponÃ­vel
         out = getattr(resp, "text", None)
         return {
             "status": "ok",
@@ -475,7 +477,7 @@ class SendButtonsRequest(BaseModel):
 
 @app.post("/send-buttons")
 def send_buttons_endpoint(payload: SendButtonsRequest, authorization: Optional[str] = Header(default=None)):
-    """Endpoint para disparar mensagem com botões (máx 3) para testes.
+    """Endpoint para disparar mensagem com botÃµes (mÃ¡x 3) para testes.
 
     Se INTERNAL_API_TOKEN estiver definida, exige Authorization: Bearer <token>.
     """
@@ -509,7 +511,7 @@ def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
     uid = user_id or "diagnostic-user"
     msg = text or "ping"
     try:
-        # garante sessão
+        # garante sessÃ£o
         try:
             _ = _session_service.get_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
         except Exception:
