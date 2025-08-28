@@ -339,6 +339,74 @@ def llm_ping():
             "error": str(exc),
         }
 
+
+class SendButtonsRequest(BaseModel):
+    to: str
+    body: str
+    buttons: List[str]
+
+
+@app.post("/send-buttons")
+def send_buttons_endpoint(payload: SendButtonsRequest, authorization: Optional[str] = Header(default=None)):
+    """Endpoint para disparar mensagem com botões (máx 3) para testes.
+
+    Se INTERNAL_API_TOKEN estiver definida, exige Authorization: Bearer <token>.
+    """
+    required_token = os.environ.get("INTERNAL_API_TOKEN")
+    if required_token:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing Bearer token")
+        token = authorization.split(" ", 1)[1]
+        if token != required_token:
+            raise HTTPException(status_code=403, detail="Invalid token")
+
+    btns = [b.strip() for b in (payload.buttons or []) if isinstance(b, str) and b.strip()]
+    if not btns:
+        raise HTTPException(status_code=400, detail="buttons must be a non-empty list of labels")
+    if len(btns) > 3:
+        btns = btns[:3]
+    try:
+        send_button_message(payload.to, payload.body, btns)
+        return {"status": "sent", "buttons": btns}
+    except requests.HTTPError as http_err:
+        status = getattr(http_err.response, "status_code", 500)
+        detail = getattr(http_err.response, "text", str(http_err))
+        raise HTTPException(status_code=status, detail=detail)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/agent-ping")
+def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
+    """Passa uma mensagem simples ao agente via Runner e retorna o texto final."""
+    uid = user_id or "diagnostic-user"
+    msg = text or "ping"
+    try:
+        # garante sessão
+        try:
+            _ = _session_service.get_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
+        except Exception:
+            _ = None
+        if not _:
+            _session_service.create_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
+
+        content = genai_types.Content(parts=[genai_types.Part(text=msg)])
+        last_text = None
+        count = 0
+        for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
+            count += 1
+            try:
+                if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
+                    parts = getattr(event.content, "parts", None) or []
+                    texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+                    if texts:
+                        last_text = "\n".join(texts).strip()
+            except Exception:
+                pass
+        return {"status": "ok", "events": count, "text": last_text}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
