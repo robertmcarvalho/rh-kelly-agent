@@ -17,6 +17,7 @@ ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do AD
 
 import os
 import requests
+import json
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse
@@ -38,6 +39,24 @@ def _get_auth_headers() -> Dict[str, str]:
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
+
+def _parse_first_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not text:
+        return None
+    t = text.strip()
+    if t.startswith("{") and t.endswith("}"):
+        try:
+            return json.loads(t)
+        except Exception:
+            return None
+    try:
+        start = t.find("{")
+        end = t.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(t[start:end+1])
+    except Exception:
+        return None
+    return None
 
 def send_text_message(destino: str, texto: str) -> None:
     """Envia uma mensagem de texto simples."""
@@ -218,31 +237,33 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
                     last_text = "\n".join(texts).strip()
         except Exception:
             pass
-    return {"content": last_text or ""}
-def enviar_mensagem_ao_agente(user_id: str, mensagem: str) -> Dict[str, Any]:
-    """
-    Envia a entrada do usuÃ¡rio para o agente ADK e retorna a resposta.
-    """
-    # Usa Runner do ADK para processar a mensagem e extrair texto da resposta
-    try:
-        sess = _session_service.get_session_sync(app_name=_APP_NAME, user_id=user_id, session_id=user_id)
-    except Exception:
-        sess = None
-    if not sess:
-        _session_service.create_session_sync(app_name=_APP_NAME, user_id=user_id, session_id=user_id)
+    parsed = _parse_first_json(last_text or "")
+    if isinstance(parsed, dict) and ("content" in parsed or "options" in parsed):
+        return {
+            "content": str(parsed.get("content") or ""),
+            "options": parsed.get("options") if isinstance(parsed.get("options"), list) else None,
+        }
+    return {"content": last_text or "", "options": None}
+    # Exemplo estruturado: preferir JSON {content, options}
+    content = resposta.get("content")
+    options = resposta.get("options")
+    if not options:
+        parsed = _parse_first_json(content or "")
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("options"), list):
+                options = parsed.get("options")
+            if isinstance(parsed.get("content"), str):
+                content = parsed.get("content")
 
-    content = genai_types.Content(parts=[genai_types.Part(text=str(mensagem or ""))])
-    last_text = None
-    for event in _runner.run(user_id=user_id, session_id=user_id, new_message=content):
-        try:
-            if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
-                parts = getattr(event.content, "parts", None) or []
-                texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
-                if texts:
-                    last_text = "\n".join(texts).strip()
-        except Exception:
-            pass
-    return {"content": last_text or ""}
+    if options:
+        if len(options) > 3:
+            send_list_message(destino, content or "Selecione uma opcao:", options)
+        else:
+            send_button_message(destino, content or "Selecione uma opcao:", options)
+    else:
+        send_text_message(destino, content or "Desculpe, nao consegui entender.")
+        }
+    return {"content": last_text or "", "options": None}
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
