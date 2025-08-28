@@ -11,6 +11,7 @@ import urllib.request
 from typing import Dict, List, Optional
 
 from google.adk.agents import Agent
+import google.generativeai as genai  # ensure explicit config from GOOGLE_API_KEY
 
 # Importa RedisMemory de forma segura apenas se necessário,
 # evitando quebrar o start caso o módulo/rota não exista no ambiente.
@@ -26,6 +27,15 @@ except Exception:  # pragma: no cover
     RedisMemory = None  # type: ignore
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+# Explicitly configure Google Generative AI when using API key mode
+_USE_VERTEX = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "FALSE").strip().upper() == "TRUE"
+_API_KEY = os.environ.get("GOOGLE_API_KEY")
+try:
+    if not _USE_VERTEX and _API_KEY:
+        genai.configure(api_key=_API_KEY)
+except Exception as _cfg_exc:  # log but do not crash
+    print(f"genai.configure error: {_cfg_exc}")
 
 # IDs e URL da planilha de vagas
 SHEET_ID = "1DESD3YZwOX0vwbelz5vJ6QJybuhPnjUMLhTlYblQt_c"
