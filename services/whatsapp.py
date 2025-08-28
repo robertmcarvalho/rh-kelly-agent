@@ -210,7 +210,7 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 from rh_kelly_agent.agent import root_agent
-from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas
+from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas, enviar_link_pipefy, SHEET_ID
 
 # Inicializa Runner e SessionService (memÃ³ria em processo por instÃ¢ncia)
 _APP_NAME = "rh_kelly_agent"
@@ -247,7 +247,7 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
     return {"content": last_text or "", "options": None}
 
 # ---------------------------------------------------------------------------
-# Suporte determinístico para seleção de cidade (sem LLM)
+# Suporte determinístico para funil completo (sem LLM nas etapas iniciais)
 # ---------------------------------------------------------------------------
 
 _CITIES_CACHE: Dict[str, Any] = {"expires": 0.0, "items": [], "map": {}}
@@ -282,7 +282,7 @@ def _match_city(label: str) -> Optional[str]:
     return m.get(str(label or "").strip().lower())
 
 def _send_turno_menu(destino: str, cidade: str) -> None:
-    """Envia opções de turno disponíveis na cidade, de forma determinística."""
+    """Envia opções de turno disponíveis na cidade, de forma determinística (usado no final)."""
     try:
         res = verificar_vagas(cidade)
     except Exception as exc:
@@ -318,9 +318,222 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     cidade = _match_city(selected)
     if not cidade:
         return {"handled": False}
-    _USER_CTX[user_id] = {**_USER_CTX.get(user_id, {}), "cidade": cidade}
-    _send_turno_menu(destino, cidade)
+    ctx = {**_USER_CTX.get(user_id, {})}
+    ctx.update({"cidade": cidade})
+    _USER_CTX[user_id] = ctx
+    # Após escolher a cidade, apresentar conhecimentos e perguntar se deseja continuar
+    _send_knowledge_then_continue(destino)
+    ctx["stage"] = "ask_continue"
+    _USER_CTX[user_id] = ctx
     return {"handled": True}
+
+def _send_city_menu(destino: str) -> None:
+    """Envia saudação fixa e menu de cidades sem usar LLM."""
+    cache = _get_cities_cached()
+    cities = cache.get("items", []) or []
+    if not cities:
+        send_text_message(destino, "No momento, nao consegui obter as cidades com vagas.")
+        return
+    greeting = (
+        "Ola, meu nome e Kelly e sou especialista em recrutamento da nossa "
+        "cooperativa de entregas. Quais cidades te interessam? Temos vagas abertas em:"
+    )
+    if len(cities) > 3:
+        send_list_message(destino, greeting, cities, botao="Ver cidades")
+    else:
+        send_button_message(destino, greeting, cities)
+
+def _load_conhecimento() -> List[Dict[str, str]]:
+    try:
+        base = os.path.dirname(os.path.dirname(__file__))
+        path = os.path.join(base, "rh_kelly_agent", "data", "conhecimento.json")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception as exc:
+        print(f"load conhecimento error: {exc}")
+        return []
+
+def _send_knowledge_then_continue(destino: str) -> None:
+    """Envia conteúdos de conhecimento e pergunta se deseja continuar."""
+    entries = _load_conhecimento()
+    if entries:
+        # Compacta em um texto legível e moderado em tamanho
+        lines = []
+        for e in entries:
+            top = str(e.get("topico", "")).strip()
+            sub = str(e.get("subtopico", "")).strip()
+            cnt = str(e.get("content", "")).strip()
+            header = f"- {top} - {sub}:" if sub else f"- {top}:"
+            lines.append(f"{header} {cnt}")
+        blob = "\n".join(lines)
+        # Se muito longo, divide em 2 partes
+        if len(blob) > 3500:
+            mid = len(blob) // 2
+            p1 = blob[:mid]
+            p2 = blob[mid:]
+            send_text_message(destino, p1)
+            send_text_message(destino, p2)
+        else:
+            send_text_message(destino, blob)
+    # Pergunta se entendeu e deseja continuar
+    send_button_message(destino, "Voce entendeu e deseja continuar com o processo seletivo?", ["Sim", "Nao"])
+
+def _send_requirement_question(destino: str, req_key: str) -> None:
+    body = {
+        "req_moto": "Voce possui moto propria com documentacao em dia?",
+        "req_cnh": "Voce possui CNH categoria A ativa?",
+        "req_android": "Voce possui um dispositivo Android para trabalhar?",
+    }.get(req_key, "Confirma?")
+    send_button_message(destino, body, ["Sim", "Nao"])
+
+def _normalize_yes_no(text: str) -> Optional[bool]:
+    t = (text or "").strip().lower()
+    if t in {"sim", "s", "ok", "claro", "yes"}:
+        return True
+    if t in {"nao", "não", "n", "no"}:
+        return False
+    return None
+
+_DISC_QUESTIONS: List[Dict[str, Any]] = [
+    {
+        "id": "Q1",
+        "text": "Durante uma rota, voce recebe uma entrega urgente. O que faz?",
+        "options": [("Q1_A", "Prioriza prazo"), ("Q1_B", "Ajusta rota"), ("Q1_C", "Adia entrega")],
+    },
+    {
+        "id": "Q2",
+        "text": "Cliente pede para deixar fora do local combinado.",
+        "options": [("Q2_A", "Segue politica"), ("Q2_B", "Liga p/ cliente"), ("Q2_C", "Deixa assim")],
+    },
+    {
+        "id": "Q3",
+        "text": "Chuva forte durante o turno.",
+        "options": [("Q3_A", "Reduz velocidade"), ("Q3_B", "Pausa e avisa"), ("Q3_C", "Mantem ritmo")],
+    },
+    {
+        "id": "Q4",
+        "text": "Embalagem frágil recebida aberta no ponto.",
+        "options": [("Q4_A", "Reporta e troca"), ("Q4_B", "Reforca e segue"), ("Q4_C", "Ignora e segue")],
+    },
+    {
+        "id": "Q5",
+        "text": "Duas coletas próximas com horários justos.",
+        "options": [("Q5_A", "Confirma ordem"), ("Q5_B", "Pede apoio"), ("Q5_C", "Arrisca atraso")],
+    },
+]
+
+_DISC_SCORES = {
+    "Q1_A": 1, "Q1_B": 1, "Q1_C": 0,
+    "Q2_A": 1, "Q2_B": 1, "Q2_C": 0,
+    "Q3_A": 1, "Q3_B": 1, "Q3_C": 0,
+    "Q4_A": 1, "Q4_B": 1, "Q4_C": 0,
+    "Q5_A": 1, "Q5_B": 1, "Q5_C": 0,
+}
+
+def _send_disc_question(destino: str, q_idx: int) -> None:
+    q = _DISC_QUESTIONS[q_idx]
+    opts = [title for (_id, title) in q["options"]]
+    body = f"Pergunta {q_idx+1}/5: {q['text']}"
+    if len(opts) > 3:
+        send_list_message(destino, body, opts, botao="Escolher")
+    else:
+        send_button_message(destino, body, opts)
+
+def _map_disc_selection(q_idx: int, selected_label: str) -> Optional[str]:
+    q = _DISC_QUESTIONS[q_idx]
+    label = (selected_label or "").strip().lower()
+    for _id, title in q["options"]:
+        if label == title.strip().lower():
+            return _id
+    return None
+
+def _fetch_vagas_by_city(cidade: str) -> List[Dict[str, Any]]:
+    try:
+        res = verificar_vagas(cidade)
+        if isinstance(res, dict) and res.get("status") == "success":
+            return list(res.get("vagas") or [])
+    except Exception as exc:
+        print(f"fetch vagas error: {exc}")
+    return []
+
+def _send_vagas_menu(destino: str, cidade: str) -> None:
+    vagas = _fetch_vagas_by_city(cidade)
+    if not vagas:
+        send_text_message(destino, f"Aprovado! Porem, nao encontrei vagas listadas agora para {cidade}.")
+        return
+    # Corpo com detalhes e rows compactos
+    lines = ["Vagas disponiveis:"]
+    rows_labels = []
+    for v in vagas:
+        vid = str(v.get("vaga_id") or v.get("VAGA_ID") or "?")
+        farm = str(v.get("farmacia") or v.get("FARMACIA") or "?")
+        turno = str(v.get("turno") or v.get("TURNO") or "?")
+        taxa = str(v.get("taxa_entrega") or v.get("TAXA_ENTREGA") or "?")
+        lines.append(f"ID {vid} | {farm} | {turno} | {taxa}")
+        rows_labels.append((vid, f"ID {vid} - {turno}"))
+    body = "\n".join(lines)
+    # Envia lista (rows.id = VAGA_ID)
+    ids = [title for (_id, title) in rows_labels]
+    if len(ids) > 3:
+        # List message usa _sanitize_row_title interno para 24 chars
+        send_list_message(destino, body, [title for (_id, title) in rows_labels], botao="Ver vagas")
+    else:
+        send_button_message(destino, "Escolha uma vaga (veja detalhes acima)", [title for (_id, title) in rows_labels])
+
+def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
+    vagas = _fetch_vagas_by_city(cidade)
+    t = (title_or_id or "").strip()
+    # Primeiro tenta por ID (prefixo "ID ")
+    if t.lower().startswith("id "):
+        vid = t.split(" ", 2)[1]
+    else:
+        vid = t
+    for v in vagas:
+        if str(v.get("vaga_id") or v.get("VAGA_ID")) == vid:
+            return v
+    return None
+
+def _save_lead_record(user_id: str) -> None:
+    ctx = _USER_CTX.get(user_id) or {}
+    try:
+        row = {
+            "user_id": user_id,
+            "cidade": ctx.get("cidade"),
+            "req_moto": ctx.get("req_moto"),
+            "req_cnh": ctx.get("req_cnh"),
+            "req_android": ctx.get("req_android"),
+            "disc_score": ctx.get("disc_score"),
+            "aprovado": ctx.get("aprovado"),
+            "vaga_id": (ctx.get("vaga") or {}).get("VAGA_ID") or (ctx.get("vaga") or {}).get("vaga_id"),
+            "turno": (ctx.get("vaga") or {}).get("TURNO") or (ctx.get("vaga") or {}).get("turno"),
+            "farmacia": (ctx.get("vaga") or {}).get("FARMACIA") or (ctx.get("vaga") or {}).get("farmacia"),
+            "taxa_entrega": (ctx.get("vaga") or {}).get("TAXA_ENTREGA") or (ctx.get("vaga") or {}).get("taxa_entrega"),
+            "timestamp": int(time.time()),
+        }
+        creds_json = os.environ.get("GSHEETS_SERVICE_ACCOUNT_JSON")
+        if creds_json:
+            import gspread
+            import json as _json
+            sa = gspread.service_account_from_dict(_json.loads(creds_json))
+            sh = sa.open_by_key(SHEET_ID)
+            ws_title = os.environ.get("LEADS_SHEET_TITLE", "Leads")
+            ws = sh.worksheet(ws_title)
+            # Reordena segundo o cabecalho existente, quando disponível
+            try:
+                header = ws.row_values(1)
+                values = [row.get(k) for k in header]
+                ws.append_row(values, value_input_option="USER_ENTERED")
+            except Exception:
+                ws.append_row(list(row.values()), value_input_option="USER_ENTERED")
+        else:
+            # fallback local
+            base = os.path.dirname(os.path.dirname(__file__))
+            path = os.path.join(base, "rh_kelly_agent", "data", "lead_log.jsonl")
+            with open(path, "a", encoding="utf-8") as f:
+                json.dump(row, f, ensure_ascii=False)
+                f.write("\n")
+    except Exception as exc:
+        print(f"save lead error: {exc}")
 
 def _send_city_menu(destino: str) -> None:
     """Envia saudação fixa e menu de cidades sem usar LLM."""
@@ -446,6 +659,15 @@ async def handle_webhook(request: Request):
         if not (texto_usuario or "").strip():
             return {"status": "ignored"}
 
+        # Fluxo determinístico por estagio
+        ctx = _USER_CTX.get(from_number) or {}
+        stage = ctx.get("stage")
+        if not stage:
+            ctx["stage"] = "await_city"
+            _USER_CTX[from_number] = ctx
+            _send_city_menu(from_number)
+            return {"status": "handled"}
+
         # Trata selecao de cidade localmente (sem LLM), quando aplicavel
         try:
             handled = _handle_city_selection(from_number, from_number, texto_usuario)
@@ -457,6 +679,115 @@ async def handle_webhook(request: Request):
                 return {"status": "handled"}
         except Exception as sel_exc:
             print(f"city selection handler error: {sel_exc}")
+
+        # Estagios sequenciais
+        try:
+            if stage == "ask_continue":
+                yn = _normalize_yes_no(texto_usuario)
+                if yn is True:
+                    ctx["stage"] = "req_moto"
+                    _USER_CTX[from_number] = ctx
+                    _send_requirement_question(from_number, "req_moto")
+                    return {"status": "handled"}
+                if yn is False:
+                    send_text_message(from_number, "Perfeito. Fico a disposicao para futuras oportunidades. Obrigada!")
+                    ctx["stage"] = "final"
+                    _USER_CTX[from_number] = ctx
+                    return {"status": "handled"}
+
+            if stage == "req_moto":
+                yn = _normalize_yes_no(texto_usuario)
+                if yn is not None:
+                    ctx["req_moto"] = bool(yn)
+                    ctx["stage"] = "req_cnh"
+                    _USER_CTX[from_number] = ctx
+                    _send_requirement_question(from_number, "req_cnh")
+                    return {"status": "handled"}
+
+            if stage == "req_cnh":
+                yn = _normalize_yes_no(texto_usuario)
+                if yn is not None:
+                    ctx["req_cnh"] = bool(yn)
+                    ctx["stage"] = "req_android"
+                    _USER_CTX[from_number] = ctx
+                    _send_requirement_question(from_number, "req_android")
+                    return {"status": "handled"}
+
+            if stage == "req_android":
+                yn = _normalize_yes_no(texto_usuario)
+                if yn is not None:
+                    ctx["req_android"] = bool(yn)
+                    # Checa requisitos
+                    if ctx.get("req_moto") and ctx.get("req_cnh") and ctx.get("req_android"):
+                        ctx["stage"] = "disc_q0"
+                        ctx["disc_answers"] = []
+                        _USER_CTX[from_number] = ctx
+                        _send_disc_question(from_number, 0)
+                    else:
+                        send_text_message(from_number, "Obrigado pelo interesse. No momento, os requisitos necessarios nao foram atendidos.")
+                        ctx["stage"] = "final"
+                        _USER_CTX[from_number] = ctx
+                    return {"status": "handled"}
+
+            if stage and stage.startswith("disc_q"):
+                try:
+                    q_idx = int(stage.replace("disc_q", ""))
+                except Exception:
+                    q_idx = 0
+                ans_id = _map_disc_selection(q_idx, texto_usuario)
+                if ans_id:
+                    answers = ctx.get("disc_answers") or []
+                    answers.append(ans_id)
+                    ctx["disc_answers"] = answers
+                    if q_idx + 1 < len(_DISC_QUESTIONS):
+                        ctx["stage"] = f"disc_q{q_idx+1}"
+                        _USER_CTX[from_number] = ctx
+                        _send_disc_question(from_number, q_idx+1)
+                    else:
+                        # Avalia
+                        score = sum(_DISC_SCORES.get(a, 0) for a in answers)
+                        ctx["disc_score"] = score
+                        aprovado = score >= 3
+                        ctx["aprovado"] = aprovado
+                        _USER_CTX[from_number] = ctx
+                        if aprovado:
+                            send_text_message(from_number, f"Parabens! Voce foi aprovado com nota {score}/5.")
+                            _send_vagas_menu(from_number, ctx.get("cidade") or "")
+                            ctx["stage"] = "offer_positions"
+                            _USER_CTX[from_number] = ctx
+                        else:
+                            send_text_message(from_number, f"Obrigado por participar. Sua nota foi {score}/5. Neste momento, nao seguiremos adiante.")
+                            ctx["stage"] = "final"
+                            _USER_CTX[from_number] = ctx
+                    return {"status": "handled"}
+
+            if stage == "offer_positions":
+                cidade = ctx.get("cidade") or ""
+                vaga = _find_vaga_by_row_title(cidade, texto_usuario)
+                if vaga:
+                    ctx["vaga"] = {
+                        "VAGA_ID": vaga.get("VAGA_ID") or vaga.get("vaga_id"),
+                        "FARMACIA": vaga.get("FARMACIA") or vaga.get("farmacia"),
+                        "TURNO": vaga.get("TURNO") or vaga.get("turno"),
+                        "TAXA_ENTREGA": vaga.get("TAXA_ENTREGA") or vaga.get("taxa_entrega"),
+                    }
+                    _USER_CTX[from_number] = ctx
+                    try:
+                        link = enviar_link_pipefy(cidade)
+                        link_url = (link or {}).get("link") if isinstance(link, dict) else None
+                    except Exception as _e:
+                        print(f"pipefy link error: {_e}")
+                        link_url = None
+                    send_text_message(from_number, (
+                        f"Otimo! Para concluir sua matricula, preencha o formulario: {link_url or 'link indisponivel'}.\n"
+                        "Nossa equipe entrara em contato em ate 48 horas. Obrigada!"
+                    ))
+                    _save_lead_record(from_number)
+                    ctx["stage"] = "final"
+                    _USER_CTX[from_number] = ctx
+                    return {"status": "handled"}
+        except Exception as flow_exc:
+            print(f"flow error: {flow_exc}")
 
         # Se nao ha cidade no contexto, envia saudacao fixa + menu de cidades
         try:
