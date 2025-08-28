@@ -17,6 +17,7 @@ ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do AD
 
 import os
 import requests
+from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -239,6 +240,57 @@ def send_text_endpoint(payload: SendTextRequest, authorization: Optional[str] = 
         raise HTTPException(status_code=status, detail=detail)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/config-check")
+def config_check():
+    """Retorna o status das variáveis de ambiente críticas (sem expor segredos)."""
+    wa_token = os.environ.get("WHATSAPP_ACCESS_TOKEN")
+    wa_phone = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+    verify = os.environ.get("VERIFY_TOKEN")
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    use_vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI")
+    redis_url = os.environ.get("REDIS_URL")
+    internal_token = os.environ.get("INTERNAL_API_TOKEN")
+    port = os.environ.get("PORT")
+
+    phone_is_digits = bool(wa_phone and wa_phone.isdigit())
+    redis_parsed = None
+    if redis_url:
+        try:
+            u = urlparse(redis_url)
+            redis_parsed = {
+                "scheme": u.scheme,
+                "host_set": bool(u.hostname),
+                "port_set": bool(u.port),
+                "has_user": bool(u.username),
+                "has_password": bool(u.password),
+            }
+        except Exception:
+            redis_parsed = {"error": "invalid_url"}
+
+    return {
+        "status": "ok",
+        "whatsapp": {
+            "access_token_set": bool(wa_token),
+            "phone_number_id_set": bool(wa_phone),
+            "phone_number_id_digits": phone_is_digits,
+            "verify_token_set": bool(verify),
+        },
+        "google_genai": {
+            "use_vertexai": str(use_vertex).upper() if use_vertex is not None else None,
+            "api_key_set": bool(api_key),
+        },
+        "redis": {
+            "redis_url_set": bool(redis_url),
+            "parsed": redis_parsed,
+        },
+        "internal_api": {
+            "internal_api_token_set": bool(internal_token),
+        },
+        "runtime": {
+            "port": port,
+        },
+    }
 
 if __name__ == "__main__":
     import uvicorn
