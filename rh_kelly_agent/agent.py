@@ -11,7 +11,8 @@ import urllib.request
 from typing import Dict, List, Optional
 
 from google.adk.agents import Agent
-import google.generativeai as genai  # ensure explicit config from GOOGLE_API_KEY
+import google.generativeai as genai  # ensure explicit config for old SDK
+import google.genai as genai2  # ensure explicit config for new SDK used by ADK
 
 # Importa RedisMemory de forma segura apenas se necessário,
 # evitando quebrar o start caso o módulo/rota não exista no ambiente.
@@ -33,9 +34,17 @@ _USE_VERTEX = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "FALSE").strip().upper
 _API_KEY = os.environ.get("GOOGLE_API_KEY")
 try:
     if not _USE_VERTEX and _API_KEY:
-        genai.configure(api_key=_API_KEY)
+        # Configure both SDKs: google-generativeai and google.genai
+        try:
+            genai.configure(api_key=_API_KEY)
+        except Exception as _cfg1:
+            print(f"google.generativeai configure error: {_cfg1}")
+        try:
+            genai2.configure(api_key=_API_KEY)
+        except Exception as _cfg2:
+            print(f"google.genai configure error: {_cfg2}")
 except Exception as _cfg_exc:  # log but do not crash
-    print(f"genai.configure error: {_cfg_exc}")
+    print(f"genai dual configure error: {_cfg_exc}")
 
 # IDs e URL da planilha de vagas
 SHEET_ID = "1DESD3YZwOX0vwbelz5vJ6QJybuhPnjUMLhTlYblQt_c"
