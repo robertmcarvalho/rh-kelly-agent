@@ -1,9 +1,0 @@
-        # Encaminha a entrada ao agente
-        agent_response = enviar_mensagem_ao_agente(from_number, texto_usuario)
-        # Processa e envia de volta via WhatsApp
-        processar_resposta_do_agente(from_number, agent_response)
-        return {"status": "handled"}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-# ---------------------------------------------------------------------------
