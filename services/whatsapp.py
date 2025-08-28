@@ -308,14 +308,15 @@ async def handle_webhook(request: Request):
                 interactive = msg.get("interactive", {})
                 itype = interactive.get("type")
                 if itype == "button_reply":
+                    # Preferir o título (label visível) para mapear a cidade corretamente
                     texto_usuario = (
-                        interactive.get("button_reply", {}).get("id")
-                        or interactive.get("button_reply", {}).get("title", "")
+                        interactive.get("button_reply", {}).get("title")
+                        or interactive.get("button_reply", {}).get("id", "")
                     )
                 elif itype == "list_reply":
                     texto_usuario = (
-                        interactive.get("list_reply", {}).get("id")
-                        or interactive.get("list_reply", {}).get("title", "")
+                        interactive.get("list_reply", {}).get("title")
+                        or interactive.get("list_reply", {}).get("id", "")
                     )
         except Exception:
             pass
