@@ -317,51 +317,7 @@ async def handle_webhook(request: Request):
         msg = messages[0]
         from_number = msg.get("from", "")  # telefone do usuário
 
-        # Se sessão ainda não existir, enviar saudação + lista completa de cidades e encerrar
-        try:
-            sess = _session_service.get_session_sync(app_name=_APP_NAME, user_id=from_number, session_id=from_number)
-        except Exception:
-            sess = None
-        if not sess:
-            # saudação
-            send_text_message(
-                from_number,
-                (
-                    "Olá, meu nome é Kelly, e sou a agente de recrutamento da nossa cooperativa. "
-                    "É um prazer te conhecer!\n\nAntes de prosseguirmos, preciso saber em qual cidade você atua. "
-                    "Por favor, selecione uma das cidades abaixo:"
-                ),
-            )
-            # cidades via ferramenta
-            try:
-                res = listar_cidades_com_vagas()
-                cidades = res.get("cidades") if isinstance(res, dict) else None
-                if isinstance(cidades, list) and cidades:
-                    cidades_sorted = sorted(set(str(c) for c in cidades))
-                    if len(cidades_sorted) > 3:
-                        send_list_message(from_number, "Escolha sua cidade:", cidades_sorted)
-                    else:
-                        send_button_message(from_number, "Escolha sua cidade:", cidades_sorted)
-            except Exception as _e:
-                # se falhar, apenas segue o fluxo normal
-                pass
-            # cria sessão para este usuário para próximas interações
-            try:
-                _session_service.create_session_sync(app_name=_APP_NAME, user_id=from_number, session_id=from_number)
-            except Exception:
-                pass
-            return {"status": "handled"}
-        # Determina se é uma resposta a botão
-        if msg.get("type") == "button":
-            # 'button' contém o id do botão, ex.: 'opcao_1'
-            payload = msg["button"]["payload"]
-            texto_usuario = payload  # mapeie para a string real conforme seu fluxo
-        elif msg.get("type") == "text":
-            texto_usuario = msg["text"]["body"]
-        else:
-            texto_usuario = ""
-
-        # Ajuste de compatibilidade com WhatsApp Cloud API (interactive replies)
+        # N�o injeta sauda��o/menu aqui: o ADK conduz o fluxo inicial
         # e robustez para o campo 'from'. Recalcula se necessário antes de chamar o agente.
         try:
             from_number = msg.get("from", from_number)
