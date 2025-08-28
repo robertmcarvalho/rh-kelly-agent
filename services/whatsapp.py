@@ -18,6 +18,7 @@ ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do AD
 import os
 import requests
 import json
+import time
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse
@@ -209,7 +210,7 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 from rh_kelly_agent.agent import root_agent
-from rh_kelly_agent.agent import listar_cidades_com_vagas
+from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas
 
 # Inicializa Runner e SessionService (memÃ³ria em processo por instÃ¢ncia)
 _APP_NAME = "rh_kelly_agent"
@@ -244,6 +245,78 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
             "options": parsed.get("options") if isinstance(parsed.get("options"), list) else None,
         }
     return {"content": last_text or "", "options": None}
+
+# ---------------------------------------------------------------------------
+# Suporte determinístico para seleção de cidade (sem LLM)
+# ---------------------------------------------------------------------------
+
+_CITIES_CACHE: Dict[str, Any] = {"expires": 0.0, "items": [], "map": {}}
+_USER_CTX: Dict[str, Dict[str, Any]] = {}
+
+def _now() -> float:
+    return time.time()
+
+def _get_cities_cached(ttl_sec: int = 600) -> Dict[str, Any]:
+    """Busca cidades da planilha com cache simples em memória."""
+    if _CITIES_CACHE["expires"] > _now() and _CITIES_CACHE["items"]:
+        return _CITIES_CACHE
+    try:
+        data = listar_cidades_com_vagas()
+        items: List[str] = []
+        if isinstance(data, dict) and data.get("status") == "success":
+            items = list(map(str, data.get("cidades", []) or []))
+        # mapa normalizado -> canônico
+        m = {str(x).strip().lower(): str(x) for x in items}
+        _CITIES_CACHE.update({
+            "expires": _now() + float(ttl_sec),
+            "items": items,
+            "map": m,
+        })
+    except Exception as exc:
+        print(f"cities cache error: {exc}")
+        # Mantém cache anterior se houver
+    return _CITIES_CACHE
+
+def _match_city(label: str) -> Optional[str]:
+    m = _get_cities_cached().get("map", {})
+    return m.get(str(label or "").strip().lower())
+
+def _send_turno_menu(destino: str, cidade: str) -> None:
+    """Envia opções de turno disponíveis na cidade, de forma determinística."""
+    try:
+        res = verificar_vagas(cidade)
+    except Exception as exc:
+        print(f"verificar_vagas error: {exc}")
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Nao foi possivel consultar as vagas agora.")
+        return
+    if not isinstance(res, dict) or res.get("status") != "success":
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Nao encontrei vagas abertas no momento.")
+        return
+    vagas = res.get("vagas") or []
+    # extrai turnos distintos e legíveis
+    seen = set()
+    turnos: List[str] = []
+    for v in vagas:
+        t = str((v or {}).get("turno", "")).strip()
+        if t and t not in seen:
+            seen.add(t)
+            turnos.append(t)
+    content = f"Cidade selecionada: {cidade}. Escolha um turno disponível:"
+    if not turnos:
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Existem vagas, mas nao consegui listar turnos agora.")
+        return
+    if len(turnos) > 3:
+        send_list_message(destino, content, turnos, botao="Ver turnos")
+    else:
+        send_button_message(destino, content, turnos)
+
+def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[str, Any]:
+    cidade = _match_city(selected)
+    if not cidade:
+        return {"handled": False}
+    _USER_CTX[user_id] = {**_USER_CTX.get(user_id, {}), "cidade": cidade}
+    _send_turno_menu(destino, cidade)
+    return {"handled": True}
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
@@ -344,6 +417,14 @@ async def handle_webhook(request: Request):
         # Ignora mensagens sem conteudo textual interpretavel
         if not (texto_usuario or "").strip():
             return {"status": "ignored"}
+
+        # Trata selecao de cidade localmente (sem LLM), quando aplicavel
+        try:
+            handled = _handle_city_selection(from_number, from_number, texto_usuario)
+            if handled.get("handled"):
+                return {"status": "handled"}
+        except Exception as sel_exc:
+            print(f"city selection handler error: {sel_exc}")
         # Encaminha a entrada ao agente com tratamento de falhas (async)
         try:
             agent_response = await enviar_mensagem_ao_agente_async(from_number, texto_usuario)
