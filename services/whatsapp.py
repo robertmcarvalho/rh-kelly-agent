@@ -284,7 +284,7 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
 # ---------------------------------------------------------------------------
 
 from rh_kelly_agent.agent import root_agent
-from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas, enviar_link_pipefy, SHEET_ID
+from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas, SHEET_ID
 
 # Inicializa Runner e SessionService (memÃ³ria em processo por instÃ¢ncia)
 _APP_NAME = "rh_kelly_agent"
@@ -402,20 +402,21 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     return {"handled": True}
 
 def _send_city_menu(destino: str) -> None:
-    """Envia saudação fixa e menu de cidades sem usar LLM."""
+    """Envia saudação fixa e, em seguida, a pergunta sobre a cidade."""
     cache = _get_cities_cached()
     cities = cache.get("items", []) or []
     if not cities:
-        send_text_message(destino, "No momento, nao consegui obter as cidades com vagas.")
+        send_text_message(destino, "No momento, não consegui obter as cidades com vagas.")
         return
     greeting = (
-        "Ola, meu nome e Kelly e sou especialista em recrutamento da nossa "
-        "cooperativa de entregas. Quais cidades te interessam? Temos vagas abertas em:"
+        "Olá, meu nome é Kelly e sou especialista em recrutamento da nossa cooperativa de entregas."
     )
+    send_text_message(destino, greeting)
+    pergunta = "Em que cidade você atua? Selecione abaixo:"
     if len(cities) > 3:
-        send_list_message(destino, greeting, cities, botao="Ver cidades")
+        send_list_message(destino, pergunta, cities, botao="Ver cidades")
     else:
-        send_button_message(destino, greeting, cities)
+        send_button_message(destino, pergunta, cities)
 
 def _load_conhecimento() -> List[Dict[str, str]]:
     try:
@@ -450,15 +451,15 @@ def _send_knowledge_then_continue(destino: str) -> None:
         else:
             send_text_message(destino, blob)
     # Pergunta se entendeu e deseja continuar
-    send_button_message(destino, "Voce entendeu e deseja continuar com o processo seletivo?", ["Sim", "Nao"])
+    send_button_message(destino, "Você entendeu e deseja continuar com o processo seletivo?", ["Sim", "Não"])
 
 def _send_requirement_question(destino: str, req_key: str) -> None:
     body = {
-        "req_moto": "Voce possui moto propria com documentacao em dia?",
-        "req_cnh": "Voce possui CNH categoria A ativa?",
-        "req_android": "Voce possui um dispositivo Android para trabalhar?",
+        "req_moto": "Você possui moto própria com documentação em dia?",
+        "req_cnh": "Você possui CNH categoria A ativa?",
+        "req_android": "Você possui um dispositivo Android para trabalhar?",
     }.get(req_key, "Confirma?")
-    send_button_message(destino, body, ["Sim", "Nao"])
+    send_button_message(destino, body, ["Sim", "Não"])
 
 def _normalize_yes_no(text: str) -> Optional[bool]:
     t = (text or "").strip().lower()
@@ -471,28 +472,28 @@ def _normalize_yes_no(text: str) -> Optional[bool]:
 _DISC_QUESTIONS: List[Dict[str, Any]] = [
     {
         "id": "Q1",
-        "text": "Durante uma rota, voce recebe uma entrega urgente. O que faz?",
-        "options": [("Q1_A", "Prioriza prazo"), ("Q1_B", "Ajusta rota"), ("Q1_C", "Adia entrega")],
+        "text": "Durante uma rota, você recebe uma entrega urgente. O que faz?",
+        "options": [("Q1_A", "Prioriza o prazo"), ("Q1_B", "Ajusta a rota"), ("Q1_C", "Adia a entrega")],
     },
     {
         "id": "Q2",
-        "text": "Cliente pede para deixar fora do local combinado.",
-        "options": [("Q2_A", "Segue politica"), ("Q2_B", "Liga p/ cliente"), ("Q2_C", "Deixa assim")],
+        "text": "O cliente pede para deixar a encomenda fora do local combinado.",
+        "options": [("Q2_A", "Segue a política"), ("Q2_B", "Liga para o cliente"), ("Q2_C", "Deixa assim")],
     },
     {
         "id": "Q3",
-        "text": "Chuva forte durante o turno.",
-        "options": [("Q3_A", "Reduz velocidade"), ("Q3_B", "Pausa e avisa"), ("Q3_C", "Mantem ritmo")],
+        "text": "Começa uma chuva forte durante o turno.",
+        "options": [("Q3_A", "Reduz a velocidade"), ("Q3_B", "Pausa e avisa"), ("Q3_C", "Mantém o ritmo")],
     },
     {
         "id": "Q4",
-        "text": "Embalagem frágil recebida aberta no ponto.",
-        "options": [("Q4_A", "Reporta e troca"), ("Q4_B", "Reforca e segue"), ("Q4_C", "Ignora e segue")],
+        "text": "Recebe uma embalagem frágil já aberta no ponto de coleta.",
+        "options": [("Q4_A", "Reporta e troca"), ("Q4_B", "Reforça e segue"), ("Q4_C", "Ignora e segue")],
     },
     {
         "id": "Q5",
-        "text": "Duas coletas próximas com horários justos.",
-        "options": [("Q5_A", "Confirma ordem"), ("Q5_B", "Pede apoio"), ("Q5_C", "Arrisca atraso")],
+        "text": "Tem duas coletas próximas com horários bem justos.",
+        "options": [("Q5_A", "Confirma a ordem"), ("Q5_B", "Pede apoio"), ("Q5_C", "Arrisca atraso")],
     },
 ]
 
@@ -536,21 +537,18 @@ def _send_vagas_menu(destino: str, cidade: str) -> None:
         send_text_message(destino, f"Aprovado! Porem, nao encontrei vagas listadas agora para {cidade}.")
         return
     # Corpo com detalhes completos e rows curtos
-    lines = ["Vagas disponiveis:"]
+    lines = ["Vagas disponíveis:"]
     rows_labels = []  # (id, title curto)
     for v in vagas:
         vid = str(v.get("vaga_id") or v.get("VAGA_ID") or "?")
         farm = str(v.get("farmacia") or v.get("FARMACIA") or "?")
         turno = str(v.get("turno") or v.get("TURNO") or "?")
         taxa = str(v.get("taxa_entrega") or v.get("TAXA_ENTREGA") or "?")
-        lines.append(f"ID {vid} | Farmacia: {farm} | Turno: {turno} | Taxa: {taxa}")
+        lines.append(f"ID {vid} | Farmácia: {farm} | Turno: {turno} | Taxa: {taxa}")
         rows_labels.append((vid, f"ID {vid} - {turno}"))
     body = "\n".join(lines)
-    # Envia menu com id=VAGA_ID e titulos curtos
-    if len(rows_labels) > 3:
-        send_list_message_rows(destino, body, rows_labels, botao="Ver vagas")
-    else:
-        send_button_message_pairs(destino, "Escolha uma vaga (veja detalhes acima)", rows_labels)
+    # Envia sempre como lista (id=VAGA_ID e títulos curtos)
+    send_list_message_rows(destino, body, rows_labels, botao="Ver vagas")
 
 def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
     vagas = _fetch_vagas_by_city(cidade)
@@ -758,12 +756,14 @@ async def handle_webhook(request: Request):
             if stage == "ask_continue":
                 yn = _normalize_yes_no(texto_usuario)
                 if yn is True:
+                    # Mensagem de contexto antes dos requisitos
+                    send_text_message(from_number, "Perfeito! Antes de seguir, preciso confirmar alguns requisitos rápidos.")
                     ctx["stage"] = "req_moto"
                     _USER_CTX[from_number] = ctx
                     _send_requirement_question(from_number, "req_moto")
                     return {"status": "handled"}
                 if yn is False:
-                    send_text_message(from_number, "Perfeito. Fico a disposicao para futuras oportunidades. Obrigada!")
+                    send_text_message(from_number, "Tudo bem. Fico à disposição para futuras oportunidades. Obrigada!")
                     ctx["stage"] = "final"
                     _USER_CTX[from_number] = ctx
                     return {"status": "handled"}
@@ -774,6 +774,7 @@ async def handle_webhook(request: Request):
                     ctx["req_moto"] = bool(yn)
                     ctx["stage"] = "req_cnh"
                     _USER_CTX[from_number] = ctx
+                    send_text_message(from_number, "Ótimo, obrigada pela confirmação.")
                     _send_requirement_question(from_number, "req_cnh")
                     return {"status": "handled"}
 
@@ -783,6 +784,7 @@ async def handle_webhook(request: Request):
                     ctx["req_cnh"] = bool(yn)
                     ctx["stage"] = "req_android"
                     _USER_CTX[from_number] = ctx
+                    send_text_message(from_number, "Perfeito, mais uma pergunta rápida.")
                     _send_requirement_question(from_number, "req_android")
                     return {"status": "handled"}
 
@@ -795,9 +797,10 @@ async def handle_webhook(request: Request):
                         ctx["stage"] = "disc_q0"
                         ctx["disc_answers"] = []
                         _USER_CTX[from_number] = ctx
+                        send_text_message(from_number, "Excelente! Agora vou fazer 5 perguntas rápidas para entender seu perfil.")
                         _send_disc_question(from_number, 0)
                     else:
-                        send_text_message(from_number, "Obrigado pelo interesse. No momento, os requisitos necessarios nao foram atendidos.")
+                        send_text_message(from_number, "Obrigada pelo interesse. No momento, os requisitos necessários não foram atendidos.")
                         ctx["stage"] = "final"
                         _USER_CTX[from_number] = ctx
                     return {"status": "handled"}
@@ -824,12 +827,12 @@ async def handle_webhook(request: Request):
                         ctx["aprovado"] = aprovado
                         _USER_CTX[from_number] = ctx
                         if aprovado:
-                            send_text_message(from_number, f"Parabens! Voce foi aprovado com nota {score}/5.")
+                            send_text_message(from_number, "Parabéns! Você foi aprovado(a).")
                             _send_vagas_menu(from_number, ctx.get("cidade") or "")
                             ctx["stage"] = "offer_positions"
                             _USER_CTX[from_number] = ctx
                         else:
-                            send_text_message(from_number, f"Obrigado por participar. Sua nota foi {score}/5. Neste momento, nao seguiremos adiante.")
+                            send_text_message(from_number, "Obrigado por participar. Neste momento, não seguiremos adiante.")
                             ctx["stage"] = "final"
                             _USER_CTX[from_number] = ctx
                     return {"status": "handled"}
@@ -845,12 +848,8 @@ async def handle_webhook(request: Request):
                         "TAXA_ENTREGA": vaga.get("TAXA_ENTREGA") or vaga.get("taxa_entrega"),
                     }
                     _USER_CTX[from_number] = ctx
-                    try:
-                        link = enviar_link_pipefy(cidade)
-                        link_url = (link or {}).get("link") if isinstance(link, dict) else None
-                    except Exception as _e:
-                        print(f"pipefy link error: {_e}")
-                        link_url = None
+                    # Link do Pipefy fixo informado
+                    link_url = "https://app.pipefy.com/public/form/v2m7kpB-"
                     # Reapresenta detalhes completos antes do link
                     det_vid = ctx["vaga"].get("VAGA_ID")
                     det_farm = ctx["vaga"].get("FARMACIA")
@@ -861,8 +860,8 @@ async def handle_webhook(request: Request):
                         f"- ID: {det_vid}\n- Farmacia: {det_farm}\n- Turno: {det_turno}\n- Taxa: {det_taxa}"
                     ))
                     send_text_message(from_number, (
-                        f"Otimo! Para concluir sua matricula, preencha o formulario: {link_url or 'link indisponivel'}.\n"
-                        "Nossa equipe entrara em contato em ate 48 horas. Obrigada!"
+                        f"Ótimo! Para concluir sua matrícula, preencha o formulário: {link_url}.\n"
+                        "Nossa equipe entrará em contato em até 48 horas. Obrigada!"
                     ))
                     _save_lead_record(from_number)
                     ctx["stage"] = "final"
