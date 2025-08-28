@@ -80,10 +80,11 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
 
     buttons_payload = []
     for i, label in enumerate(botoes):
-        title = _sanitize_button_title(str(label), i)
+        full_id = str(label)
+        title = _sanitize_button_title(full_id, i)
         buttons_payload.append({
             "type": "reply",
-            "reply": {"id": f"opcao_{i+1}", "title": title}
+            "reply": {"id": full_id, "title": title}
         })
     payload = {
         "messaging_product": "whatsapp",
@@ -122,7 +123,13 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
         if len(t) > 24:
             t = t[:24]
         return t
-    rows = [{"id": f"opcao_{i+1}", "title": _sanitize_row_title(str(opt), i)} for i, opt in enumerate(opcoes)]
+    rows = []
+    for i, opt in enumerate(opcoes):
+        full_id = str(opt)
+        rows.append({
+            "id": full_id,
+            "title": _sanitize_row_title(full_id, i)
+        })
     payload = {
         "messaging_product": "whatsapp",
         "to": destino,
@@ -365,15 +372,15 @@ async def handle_webhook(request: Request):
                 interactive = msg.get("interactive", {})
                 itype = interactive.get("type")
                 if itype == "button_reply":
-                    # Preferir o título (label visível) para mapear a cidade corretamente
+                    # Preferir o id (valor canônico completo); usar título como fallback visual
                     texto_usuario = (
-                        interactive.get("button_reply", {}).get("title")
-                        or interactive.get("button_reply", {}).get("id", "")
+                        interactive.get("button_reply", {}).get("id")
+                        or interactive.get("button_reply", {}).get("title", "")
                     )
                 elif itype == "list_reply":
                     texto_usuario = (
-                        interactive.get("list_reply", {}).get("title")
-                        or interactive.get("list_reply", {}).get("id", "")
+                        interactive.get("list_reply", {}).get("id")
+                        or interactive.get("list_reply", {}).get("title", "")
                     )
         except Exception:
             pass
