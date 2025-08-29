@@ -472,7 +472,12 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     ctx.update({"cidade": cidade})
     _save_ctx(user_id, ctx)
     # Após escolher a cidade, apresentar conhecimentos e perguntar se deseja continuar
-    _send_knowledge_then_continue(destino, user_id)
+    try:
+        send_text_message(destino, "Ótimo! 🚀 Agora vou te explicar rapidinho sobre como funciona a nossa cooperativa.")
+        send_text_message(destino, "📢 Sobre a CoopMob\nSomos uma cooperativa criada em 2023 para valorizar os entregadores 🚀. Aqui, cada motorista é dono do negócio, com voz ativa e acesso a benefícios reais.\n\n✅ Como funciona\n\nCota de participação: R$ 500 (à vista ou 25x de R$ 20, desconto em folha).\n\nPagamentos: semanais, toda quinta-feira, com base nas entregas da semana anterior.\n\nUniforme: obrigatório, camiseta custa R$ 47 (50% pago pelo cooperado, parcelado em 2x).\n\nBag: obrigatória, R$ 180 + frete (2x desconto em folha).")
+        send_text_message(destino, "🎁 Benefícios para cooperados\n\nTelemedicina: gratuita 24h (dependentes pagam R$ 15).\n\nPlano odontológico: Uniodonto por R$ 16,90/mês.\n\nEducação: até 75% de desconto em cursos técnicos, graduação e pós.\n\nEnergia sustentável: até 13% de redução na conta de luz (Minas).\n\nSeguro de vida: proteção para você e sua família.")
+    except Exception:
+        pass
     ctx["stage"] = "ask_continue"
     _save_ctx(user_id, ctx)
     return {"handled": True}
@@ -717,10 +722,29 @@ def _save_lead_record(user_id: str) -> None:
             # Reordena segundo o cabecalho existente, quando disponível
             try:
                 header = ws.row_values(1)
-                values = [row.get(k) for k in header]
+                from datetime import datetime, timezone
+                iso = datetime.now(timezone.utc).isoformat()
+                aprovado = row.get("aprovado")
+                score = row.get("disc_score")
+                protocolo = f"{int(time.time())}-{user_id}"
+                turno = row.get("turno")
+                mapping = {
+                    "DATA_ISO": iso,
+                    "NOME": row.get("nome"),
+                    "TELEFONE": row.get("user_id"),
+                    "PERFIL_APROVADO": "Sim" if aprovado else "Não",
+                    "PERFIL_NOTA": score,
+                    "PROTOCOLO": protocolo,
+                    "TURNO_ESCOLHIDO": turno,
+                    "VAGA_ID": row.get("vaga_id"),
+                    "FARMACIA": row.get("farmacia"),
+                    "CIDADE": row.get("cidade"),
+                    "TAXA_ENTREGA": row.get("taxa_entrega"),
+                }
+                values = [mapping.get(h, row.get(h)) for h in header]
                 ws.append_row(values, value_input_option="USER_ENTERED")
-            except Exception:
-                ws.append_row(list(row.values()), value_input_option="USER_ENTERED")
+            except Exception as ws_exc:
+                print(f"sheets append error: {ws_exc}")
         # Sempre guarda no Redis (quando disponível)
         if _r is not None:
             try:
@@ -922,6 +946,11 @@ async def handle_webhook(request: Request):
             ctx["last_message_at"] = _now()
             _save_ctx(from_number, ctx)
             _send_city_menu(from_number, from_number)
+            return {"status": "handled"}
+
+        # Se já finalizado, não reiniciar automaticamente
+        if stage == "final":
+            send_text_message(from_number, "Atendimento finalizado. Para recomeçar, digite 'recomeçar'.")
             return {"status": "handled"}
 
         # Recapitular após inatividade
@@ -1407,5 +1436,6 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 
