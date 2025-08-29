@@ -676,7 +676,7 @@ def _download_whatsapp_media(media_id: str) -> Optional[Dict[str, Any]]:
 
 def _transcribe_audio_gemini(data: bytes, mime_type: str) -> Optional[str]:
     try:
-        model_name = os.environ.get("AUDIO_TRANSCRIBE_MODEL") or os.environ.get("AGENT_MODEL") or "gemini-1.5-flash"
+        model_name = os.environ.get("AUDIO_TRANSCRIBE_MODEL") or os.environ.get("AGENT_MODEL") or "gemini-2.5-flash"
         model = genai.GenerativeModel(model_name)
         parts = [
             {"mime_type": mime_type or "audio/ogg", "data": data},
@@ -1078,7 +1078,7 @@ def config_check():
 def llm_ping():
     """Executa uma chamada mÃ­nima ao modelo Gemini para verificar conectividade."""
     try:
-        model_name = os.environ.get("AGENT_MODEL", "gemini-1.5-flash")
+        model_name = os.environ.get("AGENT_MODEL", "gemini-2.5-flash")
         model = genai.GenerativeModel(model_name)
         resp = model.generate_content("ping")
         # Extrai texto quando disponÃ­vel

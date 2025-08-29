@@ -169,7 +169,7 @@ def enviar_link_pipefy(cidade: str) -> Dict[str, object]:
         return {"status": "error", "error_message": str(exc)}
 
 # Cria o agente principal com instruções em português
-_AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-1.5-flash")
+_AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-2.5-flash")
 
 root_agent = Agent(
     name="rh_kelly_agent",
