@@ -219,7 +219,11 @@ def send_button_message_pairs(destino: str, corpo: str, pairs: List[Any]) -> Non
         raise
 
 def send_list_message_rows(destino: str, corpo: str, rows_in: List[Any], botao: str = "Ver opcoes") -> None:
-    """Envia lista com rows custom (id, title)."""
+    """Envia lista com rows custom (id, title[, description]).
+
+    rows_in aceita tuplas (id, title) ou (id, title, description),
+    ou dicts {id, title} ou {id, title, description}.
+    """
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     def _sanitize_row_title(txt: str, idx: int) -> str:
@@ -230,10 +234,15 @@ def send_list_message_rows(destino: str, corpo: str, rows_in: List[Any], botao: 
         if isinstance(item, dict):
             _id = str(item.get("id"))
             _title = _sanitize_row_title(str(item.get("title")), idx)
+            _desc = item.get("description")
         else:
             _id = str(item[0])
             _title = _sanitize_row_title(str(item[1]), idx)
-        rows.append({"id": _id, "title": _title})
+            _desc = item[2] if len(item) > 2 else None
+        row = {"id": _id, "title": _title}
+        if _desc:
+            row["description"] = str(_desc)
+        rows.append(row)
     payload = {
         "messaging_product": "whatsapp",
         "to": destino,
@@ -1398,4 +1407,5 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
