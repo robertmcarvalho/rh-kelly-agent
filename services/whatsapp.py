@@ -22,7 +22,7 @@ import json
 import time
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel
 import google.generativeai as genai
 from typing import List, Dict, Any, Optional
@@ -1460,6 +1460,15 @@ async def flow_data_post(request: Request):
     back a simple JSON object encoded in Base64 regardless of input payload.
     """
     try:
+        # capture headers/body for debugging
+        try:
+            hdrs = {k.lower(): v for k, v in request.headers.items()}
+            body_bytes = await request.body()
+            _FLOW_LAST["headers"] = hdrs
+            _FLOW_LAST["body"] = body_bytes.decode("utf-8", errors="ignore")
+            _FLOW_LAST["ts"] = int(time.time())
+        except Exception:
+            pass
         body = await request.body()
         reply: Dict[str, Any] = {"status": "ok"}
         try:
@@ -1482,6 +1491,18 @@ async def flow_data_post(request: Request):
 # Provide common alias path as well
 app.add_api_route("/flows/data", flow_data_post, methods=["POST"], response_class=PlainTextResponse)
 app.add_api_route("/flows/data", flow_data_get, methods=["GET"], response_class=PlainTextResponse)
+
+
+# Debug helper to inspect last Flow request
+_FLOW_LAST: Dict[str, Any] = {"headers": {}, "body": "", "ts": None}
+
+
+@app.get("/flow-debug")
+def flow_debug():
+    try:
+        return JSONResponse(_FLOW_LAST)
+    except Exception:
+        return JSONResponse({"headers": {}, "body": None, "ts": None})
 
 if __name__ == "__main__":
     import uvicorn
