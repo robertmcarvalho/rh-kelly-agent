@@ -1,0 +1,11 @@
+# Prevent committing private keys and signatures
+secrets/
+*.pem
+*.der
+*.sig
+*.sig.b64
+
+# Python artifacts
+__pycache__/
+*.pyc
+
