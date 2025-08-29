@@ -1,0 +1,2 @@
+ss>
+VERIFY_TOKEN=<uma string secreta pa

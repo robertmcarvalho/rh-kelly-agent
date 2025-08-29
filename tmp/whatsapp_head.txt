@@ -1,0 +1,320 @@
+"""
+whatsapp.py – Integração entre o agente ADK e a API oficial do WhatsApp.
+
+Este módulo define utilitários para enviar mensagens de texto e menus interativos
+(com botões) via WhatsApp Business API, além de um serviço web (FastAPI) que
+recebe webhooks de mensagens de usuários, encaminha a entrada ao ADK e envia a
+resposta apropriada de volta ao usuário. Ajuste as rotas e lógicas conforme sua
+necessidade de negócio.
+
+Para funcionar, defina as seguintes variáveis de ambiente no .env ou no sistema:
+
+WHATSAPP_ACCESS_TOKEN=<seu token permanente do WhatsApp Business>
+WHATSAPP_PHONE_NUMBER_ID=<ID do número de telefone WhatsApp Business>
+VERIFY_TOKEN=<uma string secreta para a verificação do webhook>
+ADK_API_URL=http://localhost:8000/apps/rh_kelly_agent  # URL do api_server do ADK
+"""
+
+import os
+import requests
+import json
+import time
+from urllib.parse import urlparse
+from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
+import google.generativeai as genai
+from typing import List, Dict, Any, Optional
+from google.genai import types as genai_types
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+
+# ---------------------------------------------------------------------------
+# Funções utilitárias de envio de mensagem
+# ---------------------------------------------------------------------------
+
+def _get_auth_headers() -> Dict[str, str]:
+    """Obtém os cabeçalhos de autenticação para a API do WhatsApp."""
+    token = os.environ["WHATSAPP_ACCESS_TOKEN"]
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+def _parse_first_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not text:
+        return None
+    t = text.strip()
+    if t.startswith("{") and t.endswith("}"):
+        try:
+            return json.loads(t)
+        except Exception:
+            return None
+    try:
+        start = t.find("{")
+        end = t.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(t[start:end+1])
+    except Exception:
+        return None
+    return None
+
+def send_text_message(destino: str, texto: str) -> None:
+    """Envia uma mensagem de texto simples."""
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "text",
+        "text": {"body": texto},
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_text_message error: {detail}")
+        raise
+
+def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
+    """
+    Envia uma mensagem interativa do tipo "button".
+
+    Args:
+        destino: telefone do destinatário (formato internacional, ex.: '5511999999999').
+        corpo: texto exibido na mensagem (pergunta).
+        botoes: lista de rótulos dos botões a serem exibidos. Cada botão recebe um id
+                sequencial (opcao_1, opcao_2, etc.) para identificar a resposta.
+    """
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    # WhatsApp limits: title 1..20 chars (no newlines). Sanitize labels.
+    def _sanitize_button_title(txt: str, idx: int) -> str:
+        t = (txt or "").strip().replace("\n", " ")
+        if not t:
+            t = f"Opcao {idx+1}"
+        if len(t) > 20:
+            t = t[:20]
+        return t
+
+    buttons_payload = []
+    for i, label in enumerate(botoes):
+        full_id = str(label)
+        title = _sanitize_button_title(full_id, i)
+        buttons_payload.append({
+            "type": "reply",
+            "reply": {"id": full_id, "title": title}
+        })
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": corpo},
+            "action": {"buttons": buttons_payload},
+        },
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_button_message error: {detail}")
+        raise
+
+def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = "Ver opções") -> None:
+    """Envia uma mensagem interativa do tipo "list" para mais de 3 opções.
+
+    Args:
+        destino: telefone do destinatário (E.164, ex.: '5511999999999').
+        corpo: texto exibido na mensagem.
+        opcoes: lista de títulos das linhas (cada uma vira uma row).
+        botao: rótulo do botão que abre a lista.
+    """
+    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    # WhatsApp list row title max 24 chars. Sanitize.
+    def _sanitize_row_title(txt: str, idx: int) -> str:
+        t = (txt or "").strip().replace("\n", " ")
+        if not t:
+            t = f"Opcao {idx+1}"
+        if len(t) > 24:
+            t = t[:24]
+        return t
+    rows = []
+    for i, opt in enumerate(opcoes):
+        full_id = str(opt)
+        rows.append({
+            "id": full_id,
+            "title": _sanitize_row_title(full_id, i)
+        })
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": corpo},
+            "action": {
+                "button": botao,
+                "sections": [
+                    {"title": "Cidades disponíveis", "rows": rows}
+                ],
+            },
+        },
+    }
+    response = requests.post(url, headers=_get_auth_headers(), json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as e:
+        detail = getattr(response, "text", str(e))
+        print(f"WhatsApp send_list_message error: {detail}")
+        raise
+
+def _extract_options_from_text(text: Optional[str]) -> List[str]:
+    """Heurística simples para extrair opções do texto do agente.
+
+    Ex.: "Por favor, escolha uma das cidades disponíveis: Apucarana ou Uberlândia."
+    -> ["Apucarana", "Uberlândia"]
+    """
+    if not text:
+        return []
+    s = text
+    # Busca trecho após dois pontos e antes do fim/sentença
+    import re
+    m = re.search(r":\s*([^\n\r]+)$", s) or re.search(r":\s*([^\.!?]+)[\.!?]", s)
+    if not m:
+        return []
+    region = m.group(1)
+    # Normaliza conectivos
+    region = region.replace(" ou ", ", ")
+    region = region.replace(" e ", ", ")
+    # Separa por vírgulas
+    parts = [p.strip() for p in region.split(",") if p.strip()]
+    # Filtra partes muito curtas ou com números (evita ruído)
+    parts = [p for p in parts if len(p) >= 2 and not any(ch.isdigit() for ch in p)]
+    # Evita duplicatas preservando ordem
+    seen = set()
+    out: List[str] = []
+    for p in parts:
+        if p not in seen:
+            out.append(p)
+            seen.add(p)
+    # Mantém todas; quem enviar decide se usa botões (<=3) ou lista (>3)
+    return out
+
+# ---------------------------------------------------------------------------
+# Funções para comunicação com o ADK via api_server
+# ---------------------------------------------------------------------------
+
+from rh_kelly_agent.agent import root_agent
+from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas
+
+# Inicializa Runner e SessionService (memória em processo por instância)
+_APP_NAME = "rh_kelly_agent"
+_session_service = InMemorySessionService()
+_runner = Runner(app_name=_APP_NAME, agent=root_agent, session_service=_session_service)
+
+async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[str, Any]:
+    """Versão assíncrona usando Runner.run_async e SessionService async."""
+    sess = await _session_service.get_session(
+        app_name=_APP_NAME, user_id=user_id, session_id=user_id
+    )
+    if not sess:
+        await _session_service.create_session(
+            app_name=_APP_NAME, user_id=user_id, session_id=user_id
+        )
+
+    content = genai_types.Content(parts=[genai_types.Part(text=str(mensagem or ""))])
+    last_text = None
+    async for event in _runner.run_async(user_id=user_id, session_id=user_id, new_message=content):
+        try:
+            if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
+                parts = getattr(event.content, "parts", None) or []
+                texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+                if texts:
+                    last_text = "\n".join(texts).strip()
+        except Exception:
+            pass
+    parsed = _parse_first_json(last_text or "")
+    if isinstance(parsed, dict) and ("content" in parsed or "options" in parsed):
+        return {
+            "content": str(parsed.get("content") or ""),
+            "options": parsed.get("options") if isinstance(parsed.get("options"), list) else None,
+        }
+    return {"content": last_text or "", "options": None}
+
+# ---------------------------------------------------------------------------
+# Suporte determin�stico para sele��o de cidade (sem LLM)
+# ---------------------------------------------------------------------------
+
+_CITIES_CACHE: Dict[str, Any] = {"expires": 0.0, "items": [], "map": {}}
+_USER_CTX: Dict[str, Dict[str, Any]] = {}
+
+def _now() -> float:
+    return time.time()
+
+def _get_cities_cached(ttl_sec: int = 600) -> Dict[str, Any]:
+    """Busca cidades da planilha com cache simples em mem�ria."""
+    if _CITIES_CACHE["expires"] > _now() and _CITIES_CACHE["items"]:
+        return _CITIES_CACHE
+    try:
+        data = listar_cidades_com_vagas()
+        items: List[str] = []
+        if isinstance(data, dict) and data.get("status") == "success":
+            items = list(map(str, data.get("cidades", []) or []))
+        # mapa normalizado -> can�nico
+        m = {str(x).strip().lower(): str(x) for x in items}
+        _CITIES_CACHE.update({
+            "expires": _now() + float(ttl_sec),
+            "items": items,
+            "map": m,
+        })
+    except Exception as exc:
+        print(f"cities cache error: {exc}")
+        # Mant�m cache anterior se houver
+    return _CITIES_CACHE
+
+def _match_city(label: str) -> Optional[str]:
+    m = _get_cities_cached().get("map", {})
+    return m.get(str(label or "").strip().lower())
+
+def _send_turno_menu(destino: str, cidade: str) -> None:
+    """Envia op��es de turno dispon�veis na cidade, de forma determin�stica."""
+    try:
+        res = verificar_vagas(cidade)
+    except Exception as exc:
+        print(f"verificar_vagas error: {exc}")
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Nao foi possivel consultar as vagas agora.")
+        return
+    if not isinstance(res, dict) or res.get("status") != "success":
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Nao encontrei vagas abertas no momento.")
+        return
+    vagas = res.get("vagas") or []
+    # extrai turnos distintos e leg�veis
+    seen = set()
+    turnos: List[str] = []
+    for v in vagas:
+        t = str((v or {}).get("turno", "")).strip()
+        if t and t not in seen:
+            seen.add(t)
+            turnos.append(t)
+    content = f"Cidade selecionada: {cidade}. Escolha um turno dispon�vel:"
+    if not turnos:
+        send_text_message(destino, f"Cidade selecionada: {cidade}. Existem vagas, mas nao consegui listar turnos agora.")
+        return
+    if len(turnos) > 3:
+        send_list_message(destino, content, turnos, botao="Ver turnos")
+    else:
+        send_button_message(destino, content, turnos)
+
+def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[str, Any]:
+    cidade = _match_city(selected)
+    if not cidade:
+        return {"handled": False}
+    _USER_CTX[user_id] = {**_USER_CTX.get(user_id, {}), "cidade": cidade}
+    _send_turno_menu(destino, cidade)
+    return {"handled": True}
+

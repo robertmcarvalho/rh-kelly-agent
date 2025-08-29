@@ -34,6 +34,16 @@ except Exception:
     redis = None  # type: ignore
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+try:
+    # Crypto helpers for Flow encryption
+    from cryptography.hazmat.primitives import hashes, padding as sympadding
+    from cryptography.hazmat.primitives.asymmetric import padding as asympadding, rsa
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    _CRYPTO_OK = True
+except Exception:
+    _CRYPTO_OK = False
 
 # ---------------------------------------------------------------------------
 # FunÃ§Ãµes utilitÃ¡rias de envio de mensagem
@@ -1452,6 +1462,61 @@ def flow_data_get():
     return PlainTextResponse(content=_b64_encode_json({"status": "ok"}), media_type="text/plain")
 
 
+def _load_flow_private_key() -> Optional[object]:
+    if not _CRYPTO_OK:
+        return None
+    p = os.environ.get("FLOW_PRIVATE_KEY_PATH", os.path.join(os.getcwd(), "secrets", "flow_private.pem"))
+    try:
+        with open(p, "rb") as f:
+            return serialization.load_pem_private_key(f.read(), password=None)
+    except Exception as exc:
+        try:
+            print(f"flow private key load error: {exc}")
+        except Exception:
+            pass
+        return None
+
+
+def _rsa_oaep_decrypt(priv_key: object, data: bytes) -> Optional[bytes]:
+    try:
+        return priv_key.decrypt(
+            data,
+            asympadding.OAEP(mgf=asympadding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+        )
+    except Exception:
+        return None
+
+
+def _aescbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> Optional[bytes]:
+    try:
+        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+        dec = cipher.decryptor()
+        padded = dec.update(ct) + dec.finalize()
+        unpadder = sympadding.PKCS7(128).unpadder()
+        return unpadder.update(padded) + unpadder.finalize()
+    except Exception:
+        return None
+
+
+def _aescbc_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
+    padder = sympadding.PKCS7(128).padder()
+    padded = padder.update(pt) + padder.finalize()
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    enc = cipher.encryptor()
+    return enc.update(padded) + enc.finalize()
+
+
+def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
+    try:
+        return AESGCM(key).decrypt(iv, data, None)
+    except Exception:
+        return None
+
+
+def _aesgcm_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
+    return AESGCM(key).encrypt(iv, pt, None)
+
+
 @app.post("/flow-data", response_class=PlainTextResponse)
 async def flow_data_post(request: Request):
     """Flow Data API endpoint: always returns Base64-encoded body.
@@ -1470,14 +1535,84 @@ async def flow_data_post(request: Request):
         except Exception:
             pass
         body = await request.body()
-        reply: Dict[str, Any] = {"status": "ok"}
+        # If encrypted payload present, perform decrypt -> build response -> encrypt
         try:
-            if body:
-                parsed = json.loads(body.decode("utf-8"))
-                if isinstance(parsed, dict):
-                    reply["echo"] = parsed.get("action") or parsed
+            parsed = json.loads(body.decode("utf-8")) if body else {}
         except Exception:
-            pass
+            parsed = {}
+
+        if _CRYPTO_OK and isinstance(parsed, dict) and {
+            "encrypted_flow_data",
+            "encrypted_aes_key",
+            "initial_vector",
+        }.issubset(parsed.keys()):
+            try:
+                priv = _load_flow_private_key()
+                if not priv:
+                    raise RuntimeError("private_key_unavailable")
+                enc_key_b = base64.b64decode(parsed.get("encrypted_aes_key") or "")
+                iv_b = base64.b64decode(parsed.get("initial_vector") or "")
+                ct_b = base64.b64decode(parsed.get("encrypted_flow_data") or "")
+            except Exception as e:
+                print(f"flow-data decode error: {e}")
+                return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
+
+            # Decrypt AES key with RSA OAEP SHA-256
+            aes_key = _rsa_oaep_decrypt(priv, enc_key_b) if priv else None
+            if not aes_key:
+                return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
+
+            # Try AES-GCM first, then AES-CBC
+            pt = None
+            mode = None
+            if len(iv_b) in (12, 16):
+                pt = _aesgcm_decrypt(aes_key, iv_b, ct_b)
+                if pt is not None:
+                    mode = "GCM"
+            if pt is None:
+                # CBC requires IV length 16 and ciphertext multiple of 16
+                if len(iv_b) == 16 and (len(ct_b) % 16 == 0):
+                    pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
+                    if pt is not None:
+                        mode = "CBC"
+
+            # Build a minimal OK response payload (could echo action)
+            try:
+                incoming = json.loads(pt.decode("utf-8")) if pt else {}
+            except Exception:
+                incoming = {}
+            response_obj = {"status": "ok"}
+            if isinstance(incoming, dict) and incoming:
+                response_obj["echo"] = incoming.get("action") or incoming
+
+            pt_resp = json.dumps(response_obj, ensure_ascii=False).encode("utf-8")
+
+            # Encrypt response with same mode using same AES key and a fresh IV
+            if mode == "GCM":
+                new_iv = os.urandom(12)
+                ct_out = _aesgcm_encrypt(aes_key, new_iv, pt_resp)
+                resp = {
+                    "encrypted_flow_data": base64.b64encode(ct_out).decode("ascii"),
+                    "initial_vector": base64.b64encode(new_iv).decode("ascii"),
+                }
+            elif mode == "CBC":
+                new_iv = os.urandom(16)
+                ct_out = _aescbc_encrypt(aes_key, new_iv, pt_resp)
+                resp = {
+                    "encrypted_flow_data": base64.b64encode(ct_out).decode("ascii"),
+                    "initial_vector": base64.b64encode(new_iv).decode("ascii"),
+                }
+            else:
+                # If cannot decrypt, fall back to plain Base64 OK
+                return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
+
+            # Return JSON (not Base64); Flow platform expects JSON with encrypted fields
+            return PlainTextResponse(content=json.dumps(resp, ensure_ascii=False), media_type="application/json")
+
+        # Non-encrypted mode: return Base64-encoded minimal body
+        reply: Dict[str, Any] = {"status": "ok"}
+        if isinstance(parsed, dict) and parsed:
+            reply["echo"] = parsed.get("action") or parsed
         return PlainTextResponse(content=_b64_encode_json(reply), media_type="text/plain")
     except Exception as exc:
         try:
