@@ -525,6 +525,30 @@ def _send_knowledge_then_continue(destino: str, user_id: Optional[str] = None) -
             used += len(piece)
         if lines:
             send_text_message(destino, "\n".join(lines))
+    # Envia resumo fixo para garantir entrega do conteúdo
+    try:
+        part1 = (
+            "📢 Sobre a CoopMob\n"
+            "Somos uma cooperativa criada em 2023 para valorizar os entregadores 🚀. "
+            "Aqui, cada motorista é dono do negócio, com voz ativa e acesso a benefícios reais.\n\n"
+            "✅ Como funciona\n\n"
+            "Cota de participação: R$ 500 (à vista ou 25x de R$ 20, desconto em folha).\n\n"
+            "Pagamentos: semanais, toda quinta-feira, com base nas entregas da semana anterior.\n\n"
+            "Uniforme: obrigatório, camiseta custa R$ 47 (50% pago pelo cooperado, parcelado em 2x).\n\n"
+            "Bag: obrigatória, R$ 180 + frete (2x desconto em folha)."
+        )
+        part2 = (
+            "🎁 Benefícios para cooperados\n\n"
+            "Telemedicina: gratuita 24h (dependentes pagam R$ 15).\n\n"
+            "Plano odontológico: Uniodonto por R$ 16,90/mês.\n\n"
+            "Educação: até 75% de desconto em cursos técnicos, graduação e pós.\n\n"
+            "Energia sustentável: até 13% de redução na conta de luz (Minas).\n\n"
+            "Seguro de vida: proteção para você e sua família."
+        )
+        send_text_message(destino, part1)
+        send_text_message(destino, part2)
+    except Exception as _kerr:
+        print(f"knowledge send error: {_kerr}")
     # Pergunta se entendeu e deseja continuar
     body = "Você entendeu e deseja continuar com o processo seletivo?"
     pairs = [("Sim", "Sim"), ("Não", "Não")]
