@@ -25,7 +25,12 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 import google.generativeai as genai
 from typing import List, Dict, Any, Optional
+from io import BytesIO
 from google.genai import types as genai_types
+try:
+    import redis  # type: ignore
+except Exception:
+    redis = None  # type: ignore
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
@@ -326,6 +331,34 @@ async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[s
 
 _CITIES_CACHE: Dict[str, Any] = {"expires": 0.0, "items": [], "map": {}}
 _USER_CTX: Dict[str, Dict[str, Any]] = {}
+_CTX_TTL_SEC = int(os.environ.get("LEAD_TTL_DAYS", "30")) * 24 * 3600
+
+_REDIS_URL = os.environ.get("REDIS_URL")
+_r = None
+if _REDIS_URL and redis is not None:
+    try:
+        _r = redis.from_url(_REDIS_URL, decode_responses=True)
+    except Exception as _rexc:
+        print(f"redis init error: {_rexc}")
+
+def _load_ctx(user_id: str) -> Dict[str, Any]:
+    if _r is not None:
+        try:
+            raw = _r.get(f"lead_ctx:{user_id}")
+            if raw:
+                return json.loads(raw)
+        except Exception as exc:
+            print(f"redis get ctx error: {exc}")
+    return _USER_CTX.get(user_id, {})
+
+def _save_ctx(user_id: str, ctx: Dict[str, Any]) -> None:
+    # always write memory map for local continuity
+    _USER_CTX[user_id] = ctx
+    if _r is not None:
+        try:
+            _r.setex(f"lead_ctx:{user_id}", _CTX_TTL_SEC, json.dumps(ctx, ensure_ascii=False))
+        except Exception as exc:
+            print(f"redis set ctx error: {exc}")
 
 def _now() -> float:
     return time.time()
@@ -392,13 +425,13 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     cidade = _match_city(selected)
     if not cidade:
         return {"handled": False}
-    ctx = {**_USER_CTX.get(user_id, {})}
+    ctx = {**_load_ctx(user_id)}
     ctx.update({"cidade": cidade})
-    _USER_CTX[user_id] = ctx
+    _save_ctx(user_id, ctx)
     # Após escolher a cidade, apresentar conhecimentos e perguntar se deseja continuar
     _send_knowledge_then_continue(destino)
     ctx["stage"] = "ask_continue"
-    _USER_CTX[user_id] = ctx
+    _save_ctx(user_id, ctx)
     return {"handled": True}
 
 def _send_city_menu(destino: str) -> None:
@@ -604,15 +637,56 @@ def _save_lead_record(user_id: str) -> None:
                 ws.append_row(values, value_input_option="USER_ENTERED")
             except Exception:
                 ws.append_row(list(row.values()), value_input_option="USER_ENTERED")
-        else:
-            # fallback local
-            base = os.path.dirname(os.path.dirname(__file__))
-            path = os.path.join(base, "rh_kelly_agent", "data", "lead_log.jsonl")
-            with open(path, "a", encoding="utf-8") as f:
-                json.dump(row, f, ensure_ascii=False)
-                f.write("\n")
+        # Sempre guarda no Redis (quando disponível)
+        if _r is not None:
+            try:
+                _r.rpush("leads_records", json.dumps(row, ensure_ascii=False))
+                _r.set(f"lead_final:{user_id}", json.dumps(row, ensure_ascii=False))
+            except Exception as rex:
+                print(f"redis save lead error: {rex}")
     except Exception as exc:
         print(f"save lead error: {exc}")
+
+# ---------------------------------------------------------------------------
+# Áudio: download do WhatsApp e transcrição via Gemini
+# ---------------------------------------------------------------------------
+
+def _download_whatsapp_media(media_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        token = os.environ["WHATSAPP_ACCESS_TOKEN"]
+        # 1) Obter URL
+        meta = requests.get(
+            f"https://graph.facebook.com/v19.0/{media_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        meta.raise_for_status()
+        j = meta.json()
+        url = j.get("url")
+        mime = j.get("mime_type") or j.get("mime")
+        if not url:
+            return None
+        # 2) Baixar binário
+        binr = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=60)
+        binr.raise_for_status()
+        return {"bytes": binr.content, "mime_type": mime or "audio/ogg"}
+    except Exception as exc:
+        print(f"download media error: {exc}")
+        return None
+
+def _transcribe_audio_gemini(data: bytes, mime_type: str) -> Optional[str]:
+    try:
+        model_name = os.environ.get("AUDIO_TRANSCRIBE_MODEL") or os.environ.get("AGENT_MODEL") or "gemini-1.5-flash"
+        model = genai.GenerativeModel(model_name)
+        parts = [
+            {"mime_type": mime_type or "audio/ogg", "data": data},
+            {"text": "Transcreva o áudio em português do Brasil. Responda apenas com a transcrição, sem comentários."},
+        ]
+        resp = model.generate_content(parts)
+        return getattr(resp, "text", None)
+    except Exception as exc:
+        print(f"audio transcribe error: {exc}")
+        return None
 
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
@@ -716,6 +790,17 @@ async def handle_webhook(request: Request):
                         print(f"interactive list_reply id={lid!r} title={ltitle!r}")
                     except Exception:
                         pass
+            elif mtype == "audio":
+                media = msg.get("audio", {}) or {}
+                mid = media.get("id")
+                if mid:
+                    try:
+                        mdat = _download_whatsapp_media(mid)
+                        if mdat and mdat.get("bytes"):
+                            texto_usuario = _transcribe_audio_gemini(mdat["bytes"], mdat.get("mime_type") or "audio/ogg") or ""
+                            print(f"audio transcribed chars={len(texto_usuario or '')}")
+                    except Exception as aexc:
+                        print(f"audio handle error: {aexc}")
         except Exception:
             texto_usuario = ""
 
@@ -724,11 +809,11 @@ async def handle_webhook(request: Request):
             return {"status": "ignored"}
 
         # Fluxo determinístico por estagio
-        ctx = _USER_CTX.get(from_number) or {}
+        ctx = _load_ctx(from_number) or {}
         stage = ctx.get("stage")
         if not stage:
             ctx["stage"] = "await_city"
-            _USER_CTX[from_number] = ctx
+            _save_ctx(from_number, ctx)
             _send_city_menu(from_number)
             return {"status": "handled"}
 
@@ -752,13 +837,13 @@ async def handle_webhook(request: Request):
                     # Mensagem de contexto antes dos requisitos
                     send_text_message(from_number, "Perfeito! Antes de seguir, preciso confirmar alguns requisitos rápidos.")
                     ctx["stage"] = "req_moto"
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     _send_requirement_question(from_number, "req_moto")
                     return {"status": "handled"}
                 if yn is False:
                     send_text_message(from_number, "Tudo bem. Fico à disposição para futuras oportunidades. Obrigada!")
                     ctx["stage"] = "final"
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     return {"status": "handled"}
 
             if stage == "req_moto":
@@ -766,7 +851,7 @@ async def handle_webhook(request: Request):
                 if yn is not None:
                     ctx["req_moto"] = bool(yn)
                     ctx["stage"] = "req_cnh"
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     send_text_message(from_number, "Ótimo, obrigada pela confirmação.")
                     _send_requirement_question(from_number, "req_cnh")
                     return {"status": "handled"}
@@ -776,7 +861,7 @@ async def handle_webhook(request: Request):
                 if yn is not None:
                     ctx["req_cnh"] = bool(yn)
                     ctx["stage"] = "req_android"
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     send_text_message(from_number, "Perfeito, mais uma pergunta rápida.")
                     _send_requirement_question(from_number, "req_android")
                     return {"status": "handled"}
@@ -789,13 +874,13 @@ async def handle_webhook(request: Request):
                     if ctx.get("req_moto") and ctx.get("req_cnh") and ctx.get("req_android"):
                         ctx["stage"] = "disc_q0"
                         ctx["disc_answers"] = []
-                        _USER_CTX[from_number] = ctx
+                        _save_ctx(from_number, ctx)
                         send_text_message(from_number, "Excelente! Agora vou fazer 5 perguntas rápidas para entender seu perfil.")
                         _send_disc_question(from_number, 0)
                     else:
                         send_text_message(from_number, "Obrigada pelo interesse. No momento, os requisitos necessários não foram atendidos.")
                         ctx["stage"] = "final"
-                        _USER_CTX[from_number] = ctx
+                        _save_ctx(from_number, ctx)
                     return {"status": "handled"}
 
             if stage and stage.startswith("disc_q"):
@@ -810,7 +895,7 @@ async def handle_webhook(request: Request):
                     ctx["disc_answers"] = answers
                     if q_idx + 1 < len(_DISC_QUESTIONS):
                         ctx["stage"] = f"disc_q{q_idx+1}"
-                        _USER_CTX[from_number] = ctx
+                        _save_ctx(from_number, ctx)
                         _send_disc_question(from_number, q_idx+1)
                     else:
                         # Avalia
@@ -818,16 +903,16 @@ async def handle_webhook(request: Request):
                         ctx["disc_score"] = score
                         aprovado = score >= 3
                         ctx["aprovado"] = aprovado
-                        _USER_CTX[from_number] = ctx
+                        _save_ctx(from_number, ctx)
                         if aprovado:
                             send_text_message(from_number, "Parabéns! Você foi aprovado(a).")
                             _send_vagas_menu(from_number, ctx.get("cidade") or "")
                             ctx["stage"] = "offer_positions"
-                            _USER_CTX[from_number] = ctx
+                            _save_ctx(from_number, ctx)
                         else:
                             send_text_message(from_number, "Obrigado por participar. Neste momento, não seguiremos adiante.")
                             ctx["stage"] = "final"
-                            _USER_CTX[from_number] = ctx
+                            _save_ctx(from_number, ctx)
                     return {"status": "handled"}
 
             if stage == "offer_positions":
@@ -840,7 +925,7 @@ async def handle_webhook(request: Request):
                         "TURNO": vaga.get("TURNO") or vaga.get("turno"),
                         "TAXA_ENTREGA": vaga.get("TAXA_ENTREGA") or vaga.get("taxa_entrega"),
                     }
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     # Link do Pipefy fixo informado
                     link_url = "https://app.pipefy.com/public/form/v2m7kpB-"
                     # Reapresenta detalhes completos antes do link
@@ -858,7 +943,7 @@ async def handle_webhook(request: Request):
                     ))
                     _save_lead_record(from_number)
                     ctx["stage"] = "final"
-                    _USER_CTX[from_number] = ctx
+                    _save_ctx(from_number, ctx)
                     return {"status": "handled"}
         except Exception as flow_exc:
             print(f"flow error: {flow_exc}")
