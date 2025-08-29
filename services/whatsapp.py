@@ -765,6 +765,7 @@ async def handle_webhook(request: Request):
         # Nao injeta saudacao/menu aqui: o ADK conduz o fluxo inicial
         # Extrai texto do usuario apenas para tipos suportados
         texto_usuario = ""
+        was_audio = False
         try:
             mtype = msg.get("type")
             if mtype == "text":
@@ -799,6 +800,7 @@ async def handle_webhook(request: Request):
                         if mdat and mdat.get("bytes"):
                             texto_usuario = _transcribe_audio_gemini(mdat["bytes"], mdat.get("mime_type") or "audio/ogg") or ""
                             print(f"audio transcribed chars={len(texto_usuario or '')}")
+                            was_audio = True
                     except Exception as aexc:
                         print(f"audio handle error: {aexc}")
         except Exception:
@@ -806,6 +808,11 @@ async def handle_webhook(request: Request):
 
         # Ignora mensagens sem conteudo textual interpretavel
         if not (texto_usuario or "").strip():
+            if was_audio:
+                try:
+                    send_text_message(from_number, "Não consegui entender seu áudio. Pode escrever a mensagem?")
+                except Exception:
+                    pass
             return {"status": "ignored"}
 
         # Fluxo determinístico por estagio
