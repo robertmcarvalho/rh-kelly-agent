@@ -409,10 +409,16 @@ def _send_city_menu(destino: str) -> None:
         send_text_message(destino, "No momento, não consegui obter as cidades com vagas.")
         return
     greeting = (
-        "Olá, meu nome é Kelly e sou especialista em recrutamento da nossa cooperativa de entregas."
+        "Olá, tudo bem? 😊\n"
+        "Eu sou a Kelly, responsável pelo processo de recrutamento da CoopMob! 🚀\n"
+        "Estou aqui para te acompanhar em cada etapa. Bora começar essa jornada juntos? 🙌"
     )
     send_text_message(destino, greeting)
-    pergunta = "Em que cidade você atua? Selecione abaixo:"
+    pergunta = (
+        "Antes de começarmos, preciso saber: \n"
+        "Em qual cidade você atua como entregador?\n"
+        "Selecione no menu abaixo 👇"
+    )
     if len(cities) > 3:
         send_list_message(destino, pergunta, cities, botao="Ver cidades")
     else:
@@ -432,14 +438,15 @@ def _send_knowledge_then_continue(destino: str) -> None:
     """Envia conteúdos de conhecimento e pergunta se deseja continuar."""
     entries = _load_conhecimento()
     if entries:
+        send_text_message(destino, "Ótimo! 🚀 Agora vou te explicar rapidinho sobre como funciona a nossa cooperativa:")
         # Compacta em um texto legível e moderado em tamanho
         lines = []
         for e in entries:
             top = str(e.get("topico", "")).strip()
             sub = str(e.get("subtopico", "")).strip()
             cnt = str(e.get("content", "")).strip()
-            header = f"- {top} - {sub}:" if sub else f"- {top}:"
-            lines.append(f"{header} {cnt}")
+            header = f"• {top} • {sub}" if sub else f"• {top}"
+            lines.append(f"{header}\n  {cnt}")
         blob = "\n".join(lines)
         # Se muito longo, divide em 2 partes
         if len(blob) > 3500:
@@ -536,7 +543,7 @@ def _send_vagas_menu(destino: str, cidade: str) -> None:
     if not vagas:
         send_text_message(destino, f"Aprovado! Porem, nao encontrei vagas listadas agora para {cidade}.")
         return
-    # Corpo com detalhes completos e rows curtos
+    # Envia detalhes completos em mensagem separada para melhor leitura
     lines = ["Vagas disponíveis:"]
     rows_labels = []  # (id, title curto)
     for v in vagas:
@@ -544,11 +551,12 @@ def _send_vagas_menu(destino: str, cidade: str) -> None:
         farm = str(v.get("farmacia") or v.get("FARMACIA") or "?")
         turno = str(v.get("turno") or v.get("TURNO") or "?")
         taxa = str(v.get("taxa_entrega") or v.get("TAXA_ENTREGA") or "?")
-        lines.append(f"ID {vid} | Farmácia: {farm} | Turno: {turno} | Taxa: {taxa}")
+        lines.append(f"• ID: {vid}\n  Farmácia: {farm}\n  Turno: {turno}\n  Taxa: {taxa}")
         rows_labels.append((vid, f"ID {vid} - {turno}"))
-    body = "\n".join(lines)
-    # Envia sempre como lista (id=VAGA_ID e títulos curtos)
-    send_list_message_rows(destino, body, rows_labels, botao="Ver vagas")
+    detalhes = "\n".join(lines)
+    send_text_message(destino, detalhes)
+    # Em seguida, envia a lista com um corpo curto
+    send_list_message_rows(destino, "Selecione uma vaga no menu abaixo 👇", rows_labels, botao="Ver vagas")
 
 def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
     vagas = _fetch_vagas_by_city(cidade)
@@ -857,7 +865,7 @@ async def handle_webhook(request: Request):
                     det_taxa = ctx["vaga"].get("TAXA_ENTREGA")
                     send_text_message(from_number, (
                         f"Vaga selecionada:\n"
-                        f"- ID: {det_vid}\n- Farmacia: {det_farm}\n- Turno: {det_turno}\n- Taxa: {det_taxa}"
+                        f"• ID: {det_vid}\n• Farmácia: {det_farm}\n• Turno: {det_turno}\n• Taxa: {det_taxa}"
                     ))
                     send_text_message(from_number, (
                         f"Ótimo! Para concluir sua matrícula, preencha o formulário: {link_url}.\n"

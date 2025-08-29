@@ -1,57 +1,57 @@
-[
+﻿[
   {
-    "topico": "Conceitos",
-    "subtopico": "O que é cooperativismo",
-    "content": "O cooperativismo é um modelo onde os trabalhadores se unem em prol de objetivos comuns, criando uma organização coletiva que oferece autonomia, participação nos resultados e proteção aos direitos dos cooperados. Na CoopMob, cada motorista é dono do negócio, com poder de decisão, acesso a benefícios reais e apoio jurídico, contábil e operacional. Aqui, você não é empregado de ninguém – você é parte fundamental da cooperativa."
+    "topico": "Cooperativismo",
+    "subtopico": "Como funciona",
+    "content": "Na CoopMob, os entregadores são donos do próprio trabalho. A cooperativa apoia com organização, negociação e benefícios — sem vínculo CLT. Você tem voz nas decisões e participa dos resultados."
   },
   {
     "topico": "Adesão",
     "subtopico": "Cota de participação",
-    "content": "Para se tornar cooperado é necessário adquirir uma cota no valor de R$ 500,00. Pode ser paga à vista ou parcelada em até 25x de R$ 20,00, com desconto em folha toda segunda quinta-feira do mês."
+    "content": "Para entrar na cooperativa é necessário adquirir uma cota de R$ 500,00. Pode ser à vista ou parcelada em até 25x de R$ 20,00, com desconto em folha."
   },
   {
-    "topico": "Financeiro",
-    "subtopico": "Pagamentos",
-    "content": "Os pagamentos são feitos semanalmente, toda quinta-feira, com base nas entregas realizadas no ciclo da semana anterior, que vai de segunda a domingo."
+    "topico": "Pagamentos",
+    "subtopico": "Ciclo semanal",
+    "content": "Você recebe toda quinta-feira pelas entregas realizadas entre segunda e domingo da semana anterior."
   },
   {
-    "topico": "Regras",
+    "topico": "Equipamentos",
     "subtopico": "Uniforme",
-    "content": "O uso de uniforme padronizado é obrigatório. O cooperado paga 50% do valor da camiseta, que custa R$ 47,00 + frete. O valor é parcelado em 2 vezes, com desconto em folha na segunda quinta do mês."
+    "content": "O uso de camiseta padronizada é obrigatório. O cooperado paga 50% do valor (R$ 47,00 + frete), parcelado em 2x com desconto em folha."
   },
   {
-    "topico": "Regras",
-    "subtopico": "Bag",
-    "content": "O uso de bag com caixa térmica é obrigatório. Caso o entregador não tenha uma bag própria, pode adquirir com a cooperativa por R$ 180 + frete. Também é parcelado em 2 vezes com desconto em folha toda segunda quinta feira do mês. A caixa térmica não está inclusa."
+    "topico": "Equipamentos",
+    "subtopico": "Bag térmica",
+    "content": "É obrigatório utilizar bag com isolamento térmico. Se não tiver, pode adquirir com a cooperativa por R$ 180,00 + frete (2x com desconto em folha)."
   },
   {
-    "topico": "Institucional",
-    "subtopico": "Quem somos",
-    "content": "A CoopMob nasceu em 2023, para melhorar a qualidade de vida dos motoristas por aplicativo em todo o Brasil. Nosso modelo cooperativista garante que todos os motoristas sejam mais do que simples trabalhadores: são proprietários da cooperativa, com voz ativa, participação direta e acesso a benefícios reais. Nosso propósito é proteger os interesses econômicos e sociais dos nossos cooperados."
+    "topico": "Quem somos",
+    "subtopico": "CoopMob",
+    "content": "Nascemos em 2023 para melhorar a vida dos entregadores no Brasil. Nosso propósito é oferecer condições justas, suporte real e protagonismo para quem está na rua todos os dias."
   },
   {
     "topico": "Benefícios",
     "subtopico": "Telemedicina",
-    "content": "Gratuito para cooperados, atendimento médico online 24h por dia, com mais de 30 especialidades. Apenas R$ 15,00 para dependentes. Tempo médio de espera: 8 minutos."
+    "content": "Atendimento online 24h com mais de 30 especialidades. Dependentes pagam R$ 15,00 por consulta. Tempo médio de espera: 8 minutos."
   },
   {
     "topico": "Benefícios",
-    "subtopico": "Plano Odontológico",
-    "content": "Plano acessível oferecido pela Uniodonto, por apenas R$ 16,90/mês. Cobertura de diversos procedimentos com atendimento personalizado e humanizado."
+    "subtopico": "Odontologia",
+    "content": "Plano Uniodonto a partir de R$ 16,90/mês com ampla cobertura e atendimento humanizado."
   },
   {
     "topico": "Benefícios",
     "subtopico": "Educação",
-    "content": "Descontos de até 75% oferecidos pela Faculdade Cruzeiro do Sul, em cursos técnicos, graduação e pós-graduação (presenciais e EAD) para você, seu cônjuge e filhos."
+    "content": "Descontos de até 75% em cursos técnicos, graduação e pós (presencial e EAD) para você e sua família."
   },
   {
     "topico": "Benefícios",
     "subtopico": "Economia de energia",
-    "content": "Reduza até 13% da sua conta de luz utilizando energia sustentável com compensação em kWh. Disponível na região de Minas"
+    "content": "Economize até 13% na conta de luz por meio de energia compensada (disponível em regiões selecionadas)."
   },
   {
     "topico": "Benefícios",
     "subtopico": "Seguro de vida",
-    "content": "Proteção financeira para você e sua família em casos de acidentes ou imprevistos."
+    "content": "Proteção financeira para você e sua família em casos de imprevistos."
   }
 ]
