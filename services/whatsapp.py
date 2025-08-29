@@ -614,21 +614,6 @@ def _save_lead_record(user_id: str) -> None:
     except Exception as exc:
         print(f"save lead error: {exc}")
 
-def _send_city_menu(destino: str) -> None:
-    """Envia saudação fixa e menu de cidades sem usar LLM."""
-    cache = _get_cities_cached()
-    cities = cache.get("items", []) or []
-    if not cities:
-        send_text_message(destino, "No momento, nao consegui obter as cidades com vagas.")
-        return
-    greeting = (
-        "Ola, meu nome e Kelly e sou especialista em recrutamento da nossa "
-        "cooperativa de entregas. Quais cidades te interessam? Temos vagas abertas em:"
-    )
-    if len(cities) > 3:
-        send_list_message(destino, greeting, cities, botao="Ver cidades")
-    else:
-        send_button_message(destino, greeting, cities)
 
 def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None:
     """
