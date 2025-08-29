@@ -623,7 +623,7 @@ _DISC_SCORES = {
 def _send_disc_question(destino: str, q_idx: int, user_id: Optional[str] = None) -> None:
     q = _DISC_QUESTIONS[q_idx]
     opts = [title for (_id, title) in q["options"]]
-    body = f"Pergunta {q_idx+1}/5: {q['text']}"
+    body = f"Cenário: {q['text']}\nComo você agiria?"
     pairs = [(t, t) for t in opts]
     if len(opts) > 3:
         send_list_message_rows(destino, body, pairs, botao="Escolher")
