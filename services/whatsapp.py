@@ -363,6 +363,40 @@ def _save_ctx(user_id: str, ctx: Dict[str, Any]) -> None:
 def _now() -> float:
     return time.time()
 
+# Parâmetros de contingência
+MODE_STRICT = (os.environ.get("AGENT_MODE", "STRICT") or "STRICT").upper()
+MAX_INVALID_PER_STAGE = int(os.environ.get("MAX_INVALID_PER_STAGE", "2"))
+MAX_OFF_CONTEXT = int(os.environ.get("MAX_OFF_CONTEXT", "3"))
+RECAP_AFTER_MINUTES = int(os.environ.get("RECAP_AFTER_MINUTES", "30"))
+
+def _set_last_menu(user_id: str, ctx: Dict[str, Any], *, menu_type: str, body: str, items: List[Any], botao: Optional[str] = None) -> None:
+    ctx["last_menu"] = {
+        "type": menu_type,  # 'buttons' | 'list'
+        "body": body,
+        "items": items,     # lista de pares (id,title) ou dicts {id,title}
+        "button_label": botao,
+    }
+    _save_ctx(user_id, ctx)
+
+def _resend_last_menu(destino: str, ctx: Dict[str, Any]) -> bool:
+    lm = ctx.get("last_menu") or {}
+    if not lm:
+        return False
+    items = lm.get("items") or []
+    if lm.get("type") == "buttons":
+        try:
+            send_button_message_pairs(destino, lm.get("body") or "Selecione uma opção:", items)
+            return True
+        except Exception:
+            return False
+    if lm.get("type") == "list":
+        try:
+            send_list_message_rows(destino, lm.get("body") or "Selecione uma opção:", items, botao=(lm.get("button_label") or "Ver opções"))
+            return True
+        except Exception:
+            return False
+    return False
+
 def _get_cities_cached(ttl_sec: int = 600) -> Dict[str, Any]:
     """Busca cidades da planilha com cache simples em memória."""
     if _CITIES_CACHE["expires"] > _now() and _CITIES_CACHE["items"]:
@@ -429,12 +463,12 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     ctx.update({"cidade": cidade})
     _save_ctx(user_id, ctx)
     # Após escolher a cidade, apresentar conhecimentos e perguntar se deseja continuar
-    _send_knowledge_then_continue(destino)
+    _send_knowledge_then_continue(destino, user_id)
     ctx["stage"] = "ask_continue"
     _save_ctx(user_id, ctx)
     return {"handled": True}
 
-def _send_city_menu(destino: str) -> None:
+def _send_city_menu(destino: str, user_id: str) -> None:
     """Envia saudação fixa e, em seguida, a pergunta sobre a cidade."""
     cache = _get_cities_cached()
     cities = cache.get("items", []) or []
@@ -452,10 +486,13 @@ def _send_city_menu(destino: str) -> None:
         "Em qual cidade você atua como entregador?\n"
         "Selecione no menu abaixo 👇"
     )
+    pairs = [(c, c) for c in cities]
     if len(cities) > 3:
-        send_list_message(destino, pergunta, cities, botao="Ver cidades")
+        send_list_message_rows(destino, pergunta, pairs, botao="Ver cidades")
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="list", body=pergunta, items=pairs, botao="Ver cidades")
     else:
-        send_button_message(destino, pergunta, cities)
+        send_button_message_pairs(destino, pergunta, pairs)
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="buttons", body=pergunta, items=pairs)
 
 def _load_conhecimento() -> List[Dict[str, str]]:
     try:
@@ -467,7 +504,7 @@ def _load_conhecimento() -> List[Dict[str, str]]:
         print(f"load conhecimento error: {exc}")
         return []
 
-def _send_knowledge_then_continue(destino: str) -> None:
+def _send_knowledge_then_continue(destino: str, user_id: Optional[str] = None) -> None:
     """Envia conteúdos de conhecimento e pergunta se deseja continuar."""
     entries = _load_conhecimento()
     if entries:
@@ -491,15 +528,22 @@ def _send_knowledge_then_continue(destino: str) -> None:
         else:
             send_text_message(destino, blob)
     # Pergunta se entendeu e deseja continuar
-    send_button_message(destino, "Você entendeu e deseja continuar com o processo seletivo?", ["Sim", "Não"])
+    body = "Você entendeu e deseja continuar com o processo seletivo?"
+    pairs = [("Sim", "Sim"), ("Não", "Não")]
+    send_button_message_pairs(destino, body, pairs)
+    if user_id:
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="buttons", body=body, items=pairs)
 
-def _send_requirement_question(destino: str, req_key: str) -> None:
+def _send_requirement_question(destino: str, req_key: str, user_id: Optional[str] = None) -> None:
     body = {
         "req_moto": "Você possui moto própria com documentação em dia?",
         "req_cnh": "Você possui CNH categoria A ativa?",
         "req_android": "Você possui um dispositivo Android para trabalhar?",
     }.get(req_key, "Confirma?")
-    send_button_message(destino, body, ["Sim", "Não"])
+    pairs = [("Sim", "Sim"), ("Não", "Não")]
+    send_button_message_pairs(destino, body, pairs)
+    if user_id:
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="buttons", body=body, items=pairs)
 
 def _normalize_yes_no(text: str) -> Optional[bool]:
     t = (text or "").strip().lower()
@@ -545,14 +589,19 @@ _DISC_SCORES = {
     "Q5_A": 1, "Q5_B": 1, "Q5_C": 0,
 }
 
-def _send_disc_question(destino: str, q_idx: int) -> None:
+def _send_disc_question(destino: str, q_idx: int, user_id: Optional[str] = None) -> None:
     q = _DISC_QUESTIONS[q_idx]
     opts = [title for (_id, title) in q["options"]]
     body = f"Pergunta {q_idx+1}/5: {q['text']}"
+    pairs = [(t, t) for t in opts]
     if len(opts) > 3:
-        send_list_message(destino, body, opts, botao="Escolher")
+        send_list_message_rows(destino, body, pairs, botao="Escolher")
+        if user_id:
+            _set_last_menu(user_id, _load_ctx(user_id), menu_type="list", body=body, items=pairs, botao="Escolher")
     else:
-        send_button_message(destino, body, opts)
+        send_button_message_pairs(destino, body, pairs)
+        if user_id:
+            _set_last_menu(user_id, _load_ctx(user_id), menu_type="buttons", body=body, items=pairs)
 
 def _map_disc_selection(q_idx: int, selected_label: str) -> Optional[str]:
     q = _DISC_QUESTIONS[q_idx]
@@ -571,7 +620,7 @@ def _fetch_vagas_by_city(cidade: str) -> List[Dict[str, Any]]:
         print(f"fetch vagas error: {exc}")
     return []
 
-def _send_vagas_menu(destino: str, cidade: str) -> None:
+def _send_vagas_menu(destino: str, cidade: str, user_id: Optional[str] = None) -> None:
     vagas = _fetch_vagas_by_city(cidade)
     if not vagas:
         send_text_message(destino, f"Aprovado! Porem, nao encontrei vagas listadas agora para {cidade}.")
@@ -588,8 +637,11 @@ def _send_vagas_menu(destino: str, cidade: str) -> None:
         rows_labels.append((vid, f"ID {vid} - {turno}"))
     detalhes = "\n".join(lines)
     send_text_message(destino, detalhes)
-    # Em seguida, envia a lista com um corpo curto
-    send_list_message_rows(destino, "Selecione uma vaga no menu abaixo 👇", rows_labels, botao="Ver vagas")
+    # Em seguida, envia a lista com um corpo curto e registra menu
+    body_list = "Selecione uma vaga no menu abaixo 👇"
+    send_list_message_rows(destino, body_list, rows_labels, botao="Ver vagas")
+    if user_id:
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="list", body=body_list, items=rows_labels, botao="Ver vagas")
 
 def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
     vagas = _fetch_vagas_by_city(cidade)
@@ -820,8 +872,96 @@ async def handle_webhook(request: Request):
         stage = ctx.get("stage")
         if not stage:
             ctx["stage"] = "await_city"
+            ctx["invalid_count"] = 0
+            ctx["off_context_count"] = 0
+            ctx["last_message_at"] = _now()
             _save_ctx(from_number, ctx)
-            _send_city_menu(from_number)
+            _send_city_menu(from_number, from_number)
+            return {"status": "handled"}
+
+        # Recapitular após inatividade
+        try:
+            last_ts = float(ctx.get("last_message_at") or 0)
+            if _now() - last_ts > RECAP_AFTER_MINUTES * 60 and ctx.get("last_menu"):
+                send_text_message(from_number, "Retomando de onde paramos. Aqui estão as opções novamente 👇")
+                if _resend_last_menu(from_number, ctx):
+                    ctx["last_message_at"] = _now()
+                    _save_ctx(from_number, ctx)
+                    return {"status": "handled"}
+        except Exception:
+            pass
+
+        # Comandos globais
+        def _cmd(txt: str) -> str:
+            t = (txt or "").strip().lower()
+            if t in {"menu"}: return "menu"
+            if t in {"voltar"}: return "voltar"
+            if t in {"recomecar", "recomeçar"}: return "recomecar"
+            if t in {"ajuda", "help"}: return "ajuda"
+            if t in {"humano", "atendente", "suporte"}: return "humano"
+            return ""
+
+        cmd = _cmd(texto_usuario)
+        if cmd == "recomecar":
+            ctx = {"stage": "await_city", "invalid_count": 0, "off_context_count": 0, "last_message_at": _now()}
+            _save_ctx(from_number, ctx)
+            _send_city_menu(from_number, from_number)
+            return {"status": "handled"}
+        if cmd == "menu" and ctx.get("last_menu"):
+            send_text_message(from_number, "Claro! Aqui estão as opções novamente 👇")
+            _resend_last_menu(from_number, ctx)
+            ctx["last_message_at"] = _now()
+            _save_ctx(from_number, ctx)
+            return {"status": "handled"}
+        if cmd == "voltar":
+            st = str(ctx.get("stage") or "")
+            def back_to(prev_stage: str):
+                ctx["stage"] = prev_stage
+                ctx["invalid_count"] = 0
+                _save_ctx(from_number, ctx)
+            if st.startswith("disc_q"):
+                try:
+                    qi = int(st.replace("disc_q", ""))
+                except Exception:
+                    qi = 0
+                if qi > 0:
+                    back_to(f"disc_q{qi-1}")
+                    _send_disc_question(from_number, qi-1, user_id=from_number)
+                else:
+                    back_to("req_android")
+                    _send_requirement_question(from_number, "req_android", user_id=from_number)
+                return {"status": "handled"}
+            if st == "offer_positions":
+                # Reenviar vagas
+                _resend_last_menu(from_number, ctx) or _send_vagas_menu(from_number, ctx.get("cidade") or "", user_id=from_number)
+                return {"status": "handled"}
+            if st == "req_android":
+                back_to("req_cnh"); _send_requirement_question(from_number, "req_cnh", user_id=from_number); return {"status": "handled"}
+            if st == "req_cnh":
+                back_to("req_moto"); _send_requirement_question(from_number, "req_moto", user_id=from_number); return {"status": "handled"}
+            if st == "req_moto":
+                back_to("ask_continue"); send_button_message_pairs(from_number, "Você entendeu e deseja continuar com o processo seletivo?", [("Sim","Sim"),("Não","Não")]); _set_last_menu(from_number, _load_ctx(from_number), menu_type="buttons", body="Você entendeu e deseja continuar com o processo seletivo?", items=[("Sim","Sim"),("Não","Não")]); return {"status": "handled"}
+            if st == "ask_continue":
+                back_to("await_city"); _send_city_menu(from_number, from_number); return {"status": "handled"}
+            # default: reenviar ultimo menu
+            if _resend_last_menu(from_number, ctx):
+                return {"status": "handled"}
+        if cmd == "ajuda":
+            st = str(ctx.get("stage") or "")
+            tips = {
+                "await_city": "Toque em uma das cidades do menu para continuar.",
+                "ask_continue": "Toque em Sim ou Não para escolher seguir com o processo.",
+                "req_moto": "Responda tocando em Sim ou Não.",
+                "req_cnh": "Responda tocando em Sim ou Não.",
+                "req_android": "Responda tocando em Sim ou Não.",
+                "offer_positions": "Toque em uma vaga do menu para selecionar.",
+            }
+            send_text_message(from_number, f"Ajuda: {tips.get(st, 'Selecione uma opção do menu abaixo.')} ")
+            _resend_last_menu(from_number, ctx)
+            return {"status": "handled"}
+        if cmd == "humano":
+            send_text_message(from_number, "Sem problemas! Vou pedir para nossa equipe te chamar. Você também pode preencher o formulário: https://app.pipefy.com/public/form/v2m7kpB-")
+            ctx["stage"] = "final"; _save_ctx(from_number, ctx)
             return {"status": "handled"}
 
         # Trata selecao de cidade localmente (sem LLM), quando aplicavel
@@ -845,7 +985,7 @@ async def handle_webhook(request: Request):
                     send_text_message(from_number, "Perfeito! Antes de seguir, preciso confirmar alguns requisitos rápidos.")
                     ctx["stage"] = "req_moto"
                     _save_ctx(from_number, ctx)
-                    _send_requirement_question(from_number, "req_moto")
+                    _send_requirement_question(from_number, "req_moto", user_id=from_number)
                     return {"status": "handled"}
                 if yn is False:
                     send_text_message(from_number, "Tudo bem. Fico à disposição para futuras oportunidades. Obrigada!")
@@ -860,7 +1000,7 @@ async def handle_webhook(request: Request):
                     ctx["stage"] = "req_cnh"
                     _save_ctx(from_number, ctx)
                     send_text_message(from_number, "Ótimo, obrigada pela confirmação.")
-                    _send_requirement_question(from_number, "req_cnh")
+                    _send_requirement_question(from_number, "req_cnh", user_id=from_number)
                     return {"status": "handled"}
 
             if stage == "req_cnh":
@@ -870,7 +1010,7 @@ async def handle_webhook(request: Request):
                     ctx["stage"] = "req_android"
                     _save_ctx(from_number, ctx)
                     send_text_message(from_number, "Perfeito, mais uma pergunta rápida.")
-                    _send_requirement_question(from_number, "req_android")
+                    _send_requirement_question(from_number, "req_android", user_id=from_number)
                     return {"status": "handled"}
 
             if stage == "req_android":
@@ -883,7 +1023,7 @@ async def handle_webhook(request: Request):
                         ctx["disc_answers"] = []
                         _save_ctx(from_number, ctx)
                         send_text_message(from_number, "Excelente! Agora vou fazer 5 perguntas rápidas para entender seu perfil.")
-                        _send_disc_question(from_number, 0)
+                        _send_disc_question(from_number, 0, user_id=from_number)
                     else:
                         send_text_message(from_number, "Obrigada pelo interesse. No momento, os requisitos necessários não foram atendidos.")
                         ctx["stage"] = "final"
@@ -954,6 +1094,22 @@ async def handle_webhook(request: Request):
                     return {"status": "handled"}
         except Exception as flow_exc:
             print(f"flow error: {flow_exc}")
+
+        # Modo estrito: se há um stage ativo e a entrada não foi tratada acima,
+        # reenvia o último menu em vez de chamar LLM.
+        try:
+            ctx = _load_ctx(from_number) or {}
+            st = ctx.get("stage")
+            if MODE_STRICT == "STRICT" and st not in (None, "final"):
+                if not _resend_last_menu(from_number, ctx):
+                    _send_city_menu(from_number, from_number)
+                ctx["invalid_count"] = int(ctx.get("invalid_count") or 0) + 1
+                ctx["off_context_count"] = int(ctx.get("off_context_count") or 0) + 1
+                ctx["last_message_at"] = _now()
+                _save_ctx(from_number, ctx)
+                return {"status": "handled"}
+        except Exception:
+            pass
 
         # Se nao ha cidade no contexto, envia saudacao fixa + menu de cidades
         try:
