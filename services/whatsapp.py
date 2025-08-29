@@ -509,24 +509,25 @@ def _send_knowledge_then_continue(destino: str, user_id: Optional[str] = None) -
     entries = _load_conhecimento()
     if entries:
         send_text_message(destino, "Ótimo! 🚀 Agora vou te explicar rapidinho sobre como funciona a nossa cooperativa:")
-        # Compacta em um texto legível e moderado em tamanho
-        lines = []
+        # Quebra em blocos para evitar textos muito longos no WhatsApp
+        blocks: List[str] = []
+        acc = ""
         for e in entries:
             top = str(e.get("topico", "")).strip()
             sub = str(e.get("subtopico", "")).strip()
             cnt = str(e.get("content", "")).strip()
             header = f"• {top} • {sub}" if sub else f"• {top}"
-            lines.append(f"{header}\n  {cnt}")
-        blob = "\n".join(lines)
-        # Se muito longo, divide em 2 partes
-        if len(blob) > 3500:
-            mid = len(blob) // 2
-            p1 = blob[:mid]
-            p2 = blob[mid:]
-            send_text_message(destino, p1)
-            send_text_message(destino, p2)
-        else:
-            send_text_message(destino, blob)
+            part = f"{header}\n  {cnt}\n"
+            if len(acc) + len(part) > 900:
+                if acc:
+                    blocks.append(acc)
+                acc = part
+            else:
+                acc += part
+        if acc:
+            blocks.append(acc)
+        for b in blocks:
+            send_text_message(destino, b)
     # Pergunta se entendeu e deseja continuar
     body = "Você entendeu e deseja continuar com o processo seletivo?"
     pairs = [("Sim", "Sim"), ("Não", "Não")]
@@ -658,10 +659,11 @@ def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str,
     return None
 
 def _save_lead_record(user_id: str) -> None:
-    ctx = _USER_CTX.get(user_id) or {}
+    ctx = _load_ctx(user_id) or {}
     try:
         row = {
             "user_id": user_id,
+            "nome": ctx.get("nome"),
             "cidade": ctx.get("cidade"),
             "req_moto": ctx.get("req_moto"),
             "req_cnh": ctx.get("req_cnh"),
@@ -813,6 +815,19 @@ async def handle_webhook(request: Request):
             return {"status": "ignored"}
         msg = messages[0]
         from_number = msg.get("from", "")  # telefone do usuario
+        # Captura e persiste o nome do lead (quando disponível)
+        try:
+            contacts = entry.get("contacts") or []
+            profile_name = None
+            if contacts:
+                profile_name = ((contacts[0] or {}).get("profile") or {}).get("name")
+            if profile_name:
+                _ctx_tmp = _load_ctx(from_number) or {}
+                if not _ctx_tmp.get("nome"):
+                    _ctx_tmp["nome"] = str(profile_name)
+                    _save_ctx(from_number, _ctx_tmp)
+        except Exception:
+            pass
 
         # Nao injeta saudacao/menu aqui: o ADK conduz o fluxo inicial
         # Extrai texto do usuario apenas para tipos suportados
