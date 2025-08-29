@@ -1587,28 +1587,20 @@ async def flow_data_post(request: Request):
 
             pt_resp = json.dumps(response_obj, ensure_ascii=False).encode("utf-8")
 
-            # Encrypt response with same mode using same AES key and a fresh IV
-            if mode == "GCM":
-                new_iv = os.urandom(12)
-                ct_out = _aesgcm_encrypt(aes_key, new_iv, pt_resp)
-                resp = {
-                    "encrypted_flow_data": base64.b64encode(ct_out).decode("ascii"),
-                    "initial_vector": base64.b64encode(new_iv).decode("ascii"),
-                }
-            elif mode == "CBC":
-                new_iv = os.urandom(16)
-                ct_out = _aescbc_encrypt(aes_key, new_iv, pt_resp)
-                resp = {
-                    "encrypted_flow_data": base64.b64encode(ct_out).decode("ascii"),
-                    "initial_vector": base64.b64encode(new_iv).decode("ascii"),
-                }
-            else:
-                # If cannot decrypt, fall back to plain Base64 OK
-                return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
+            # Enc        # Encrypt response using inverted IV and same AES key
+        def _invert_bytes(data: bytes) -> bytes:
+            return bytes([(b ^ 0xFF) for b in data])
 
-            # Return JSON (not Base64); Flow platform expects JSON with encrypted fields
-            return PlainTextResponse(content=json.dumps(resp, ensure_ascii=False), media_type="application/json")
+        if mode == "GCM":
+            resp_iv = _invert_bytes(iv_b)
+            ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
+        elif mode == "CBC":
+            resp_iv = _invert_bytes(iv_b)
+            ct_out = _aescbc_encrypt(aes_key, resp_iv, pt_resp)
+        else:
+            return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
 
+        return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
         # Non-encrypted mode: return Base64-encoded minimal body
         reply: Dict[str, Any] = {"status": "ok"}
         if isinstance(parsed, dict) and parsed:
