@@ -509,25 +509,22 @@ def _send_knowledge_then_continue(destino: str, user_id: Optional[str] = None) -
     entries = _load_conhecimento()
     if entries:
         send_text_message(destino, "Ótimo! 🚀 Agora vou te explicar rapidinho sobre como funciona a nossa cooperativa:")
-        # Quebra em blocos para evitar textos muito longos no WhatsApp
-        blocks: List[str] = []
-        acc = ""
+        # Monta um resumo compacto (primeiros itens) para garantir entrega
+        lines: List[str] = []
+        char_budget = 800
+        used = 0
         for e in entries:
             top = str(e.get("topico", "")).strip()
             sub = str(e.get("subtopico", "")).strip()
             cnt = str(e.get("content", "")).strip()
             header = f"• {top} • {sub}" if sub else f"• {top}"
-            part = f"{header}\n  {cnt}\n"
-            if len(acc) + len(part) > 900:
-                if acc:
-                    blocks.append(acc)
-                acc = part
-            else:
-                acc += part
-        if acc:
-            blocks.append(acc)
-        for b in blocks:
-            send_text_message(destino, b)
+            piece = f"{header}\n  {cnt}\n"
+            if used + len(piece) > char_budget:
+                break
+            lines.append(piece)
+            used += len(piece)
+        if lines:
+            send_text_message(destino, "\n".join(lines))
     # Pergunta se entendeu e deseja continuar
     body = "Você entendeu e deseja continuar com o processo seletivo?"
     pairs = [("Sim", "Sim"), ("Não", "Não")]
@@ -914,6 +911,7 @@ async def handle_webhook(request: Request):
             if t in {"recomecar", "recomeçar"}: return "recomecar"
             if t in {"ajuda", "help"}: return "ajuda"
             if t in {"humano", "atendente", "suporte"}: return "humano"
+            if t in {"status", "progresso"}: return "status"
             return ""
 
         cmd = _cmd(texto_usuario)
@@ -973,6 +971,44 @@ async def handle_webhook(request: Request):
             }
             send_text_message(from_number, f"Ajuda: {tips.get(st, 'Selecione uma opção do menu abaixo.')} ")
             _resend_last_menu(from_number, ctx)
+            return {"status": "handled"}
+        if cmd == "status":
+            st_map = {
+                "await_city": "Aguardando seleção de cidade",
+                "ask_continue": "Apresentação enviada; aguardando confirmação para continuar",
+                "req_moto": "Confirmando: moto com documentação em dia",
+                "req_cnh": "Confirmando: CNH A ativa",
+                "req_android": "Confirmando: dispositivo Android",
+                "disc_q0": "Questionário DISC (1/5)",
+                "disc_q1": "Questionário DISC (2/5)",
+                "disc_q2": "Questionário DISC (3/5)",
+                "disc_q3": "Questionário DISC (4/5)",
+                "disc_q4": "Questionário DISC (5/5)",
+                "offer_positions": "Apresentando vagas disponíveis",
+                "final": "Atendimento concluído",
+            }
+            nome = ctx.get("nome") or "Entregador(a)"
+            cidade = ctx.get("cidade") or "—"
+            reqs = [
+                f"Moto: {'Sim' if ctx.get('req_moto') else 'Não' if ctx.get('req_moto') is False else '—'}",
+                f"CNH A: {'Sim' if ctx.get('req_cnh') else 'Não' if ctx.get('req_cnh') is False else '—'}",
+                f"Android: {'Sim' if ctx.get('req_android') else 'Não' if ctx.get('req_android') is False else '—'}",
+            ]
+            disc_prog = ctx.get("disc_answers") or []
+            vaga = ctx.get("vaga") or {}
+            msg = (
+                f"Status de {nome}:\n"
+                f"• Etapa: {st_map.get(str(ctx.get('stage') or ''), '—')}\n"
+                f"• Cidade: {cidade}\n"
+                f"• Requisitos: {', '.join(reqs)}\n"
+                f"• DISC: {len(disc_prog)}/5 respondidas\n"
+            )
+            if vaga:
+                msg += f"• Vaga: ID {vaga.get('VAGA_ID') or vaga.get('vaga_id')} ({vaga.get('TURNO') or vaga.get('turno')})\n"
+            msg += "\nDicas: digite 'menu' para ver as opções, 'voltar' para a etapa anterior ou 'recomeçar' para iniciar do zero."
+            send_text_message(from_number, msg)
+            if ctx.get("last_menu"):
+                _resend_last_menu(from_number, ctx)
             return {"status": "handled"}
         if cmd == "humano":
             send_text_message(from_number, "Sem problemas! Vou pedir para nossa equipe te chamar. Você também pode preencher o formulário: https://app.pipefy.com/public/form/v2m7kpB-")
