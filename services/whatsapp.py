@@ -334,13 +334,30 @@ def _extract_options_from_text(text: Optional[str]) -> List[str]:
 from rh_kelly_agent.agent import root_agent
 from rh_kelly_agent.agent import listar_cidades_com_vagas, verificar_vagas, SHEET_ID
 
-# Inicializa Runner e SessionService (memÃ³ria em processo por instÃ¢ncia)
+# Inicialização lazy do Runner/SessionService para evitar falhas em tempo de importação
 _APP_NAME = "rh_kelly_agent"
-_session_service = InMemorySessionService()
-_runner = Runner(app_name=_APP_NAME, agent=root_agent, session_service=_session_service)
+_session_service: Optional[InMemorySessionService] = None
+_runner: Optional[Runner] = None
+
+
+def _init_runner() -> None:
+    """Inicializa _session_service e _runner se ainda não estiverem prontos."""
+    global _session_service, _runner
+    if _runner is not None and _session_service is not None:
+        return
+    try:
+        _session_service = InMemorySessionService()
+        _runner = Runner(app_name=_APP_NAME, agent=root_agent, session_service=_session_service)
+    except Exception as exc:  # pragma: no cover - inicialização best effort
+        print(f"agent init error: {exc}")
+        _session_service = None
+        _runner = None
 
 async def enviar_mensagem_ao_agente_async(user_id: str, mensagem: str) -> Dict[str, Any]:
     """VersÃ£o assÃ­ncrona usando Runner.run_async e SessionService async."""
+    _init_runner()
+    if _runner is None or _session_service is None:
+        raise RuntimeError("runner not initialized")
     sess = await _session_service.get_session(
         app_name=_APP_NAME, user_id=user_id, session_id=user_id
     )
@@ -865,6 +882,11 @@ def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None
 
 app = FastAPI()
 
+
+@app.on_event("startup")
+async def _startup_event() -> None:
+    _init_runner()
+
 @app.get("/")
 def healthcheck():
     return {"status": "ok"}
@@ -1273,6 +1295,9 @@ async def handle_webhook(request: Request):
             print(f"greeting/menu error: {greet_exc}")
         # Encaminha a entrada ao agente com tratamento de falhas (async)
         try:
+            _init_runner()
+            if _runner is None or _session_service is None:
+                raise RuntimeError("runner not initialized")
             agent_response = await enviar_mensagem_ao_agente_async(from_number, texto_usuario)
             # Processa e envia de volta via WhatsApp
             processar_resposta_do_agente(from_number, agent_response)
@@ -1403,74 +1428,36 @@ def llm_ping():
         }
 
 
-class SendButtonsRequest(BaseModel):
-    to: str
-    body: str
-    buttons: List[str]
-
-
-@app.post("/send-buttons")
-def send_buttons_endpoint(payload: SendButtonsRequest, authorization: Optional[str] = Header(default=None)):
-    """Endpoint para disparar mensagem com botÃµes (mÃ¡x 3) para testes.
-
-    Se INTERNAL_API_TOKEN estiver definida, exige Authorization: Bearer <token>.
-    """
-    required_token = os.environ.get("INTERNAL_API_TOKEN")
-    if required_token:
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing Bearer token")
-        token = authorization.split(" ", 1)[1]
-        if token != required_token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-
-    btns = [b.strip() for b in (payload.buttons or []) if isinstance(b, str) and b.strip()]
-    if not btns:
-        raise HTTPException(status_code=400, detail="buttons must be a non-empty list of labels")
-    if len(btns) > 3:
-        count = 0
-        for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
-            count += 1
-            try:
-                if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
-                    parts = getattr(event.content, "parts", None) or []
-                    texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
-                    if texts:
-                        last_text = "\n".join(texts).strip()
-            except Exception:
-                pass
-        return {"status": "ok", "events": count, "text": last_text}
+        btns = btns[:3]
+    try:
+        send_button_message(payload.to, payload.body, btns)
+        return {"status": "sent", "buttons": btns}
+    except requests.HTTPError as http_err:
+        status = getattr(http_err.response, "status_code", 500)
+        detail = getattr(http_err.response, "text", str(http_err))
+        raise HTTPException(status_code=status, detail=detail)
     except Exception as exc:
-        return {"status": "error", "error": str(exc)}
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
-            if len(iv_b) in (12, 16):
-                pt = _aesgcm_decrypt(aes_key, iv_b, ct_b)
-                if pt is not None:
-                    mode = "GCM"
-            if pt is None:
-                # CBC requires IV length 16 and ciphertext multiple of 16
-                if len(iv_b) == 16 and (len(ct_b) % 16 == 0):
-                    pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
-                    if pt is not None:
-                        mode = "CBC"
+@app.get("/agent-ping")
+def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
+    """Passa uma mensagem simples ao agente via Runner e retorna o texto final."""
+    _init_runner()
+    if _runner is None or _session_service is None:
+        return {"status": "error", "error": "runner not initialized"}
+    uid = user_id or "diagnostic-user"
+    msg = text or "ping"
+    try:
+        try:
+            _ = _session_service.get_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
+        except Exception:
+            _ = None
+        if not _:
+            _session_service.create_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
 
-            # Build a minimal OK response payload (could echo action)
-            try:
-                incoming = json.loads(pt.decode("utf-8")) if pt else {}
-            except Exception:
-                incoming = {}
-            response_obj = {"status": "ok"}
-            if isinstance(incoming, dict) and incoming:
-                response_obj["echo"] = incoming.get("action") or incoming
-
-            pt_resp = json.dumps(response_obj, ensure_ascii=False).encode("utf-8")
-
-            # Enc        # Encrypt response using inverted IV and same AES key
-        def _invert_bytes(data: bytes) -> bytes:
-            return bytes([(b ^ 0xFF) for b in data])
-
-        if mode == "GCM":
-            resp_iv = _invert_bytes(iv_b)
+        content = genai_types.Content(parts=[genai_types.Part(text=msg)])
+        last_text = None
             ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
         elif mode == "CBC":
             resp_iv = _invert_bytes(iv_b)
