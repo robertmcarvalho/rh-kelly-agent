@@ -1304,8 +1304,12 @@ class SendTextRequest(BaseModel):
 def send_text_endpoint(payload: SendTextRequest, authorization: Optional[str] = Header(default=None)):
     """Endpoint opcional para disparar uma mensagem de texto de teste.
 
-    Se a varivel de ambiente INTERNAL_API_TOKEN estiver definida, exige cabealho
-    Authorization: Bearer <token>. Caso no esteja, o endpoint fica aberto.
+    Se a varivel de ambiente INTERNAL_API_TOKEN estiver definida, exige cabe
+alho
+    Authorization: Bearer <token>. Caso n
+o esteja, o endpoint fica aberto.
+        # Retorna o corpo de erro da API Meta, se disponível
+o esteja, o endpoint fica aberto.
     """
     required_token = os.environ.get("INTERNAL_API_TOKEN")
     if required_token:
@@ -1423,58 +1427,6 @@ def send_buttons_endpoint(payload: SendButtonsRequest, authorization: Optional[s
     if not btns:
         raise HTTPException(status_code=400, detail="buttons must be a non-empty list of labels")
     if len(btns) > 3:
-        btns = btns[:3]
-    try:
-        send_button_message(payload.to, payload.body, btns)
-        return {"status": "sent", "buttons": btns}
-    except requests.HTTPError as http_err:
-        status = getattr(http_err.response, "status_code", 500)
-        detail = getattr(http_err.response, "text", str(http_err))
-        raise HTTPException(status_code=status, detail=detail)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.get("/agent-ping")
-def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
-    """Passa uma mensagem simples ao agente via Runner e retorna o texto final."""
-    uid = user_id or "diagnostic-user"
-    msg = text or "ping"
-    try:
-        # garante sessÃ£o
-        try:
-            _ = _session_service.get_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
-        except Exception:
-            _ = None
-        if not _:
-            _session_service.create_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
-
-        content = genai_types.Content(parts=[genai_types.Part(text=msg)])
-        last_text = None
-def _b64_decode(data: str) -> bytes:
-    """Decode Base64 (standard or urlsafe) or hexadecimal text.
-
-    The function is permissive with missing padding for Base64 inputs and falls
-    back to hexadecimal decoding when the string contains only hex characters.
-    Returns the decoded bytes or raises ValueError if decoding fails.
-    """
-    if not data:
-        return b""
-    s = data.strip()
-    padding = "=" * (-len(s) % 4)
-    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
-        try:
-            return decoder(s + padding)
-        except Exception:
-            continue
-    if re.fullmatch(r"[0-9a-fA-F]+", s):
-        try:
-            return binascii.unhexlify(s)
-        except Exception:
-            pass
-    raise ValueError("invalid_base64")
-
-
         count = 0
         for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
             count += 1
@@ -1482,32 +1434,6 @@ def _b64_decode(data: str) -> bytes:
                 if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
                     parts = getattr(event.content, "parts", None) or []
                     texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
-    """Load the Flow private key from env var or file path.
-
-    Supports two mechanisms:
-    * FLOW_PRIVATE_KEY: raw PEM string or Base64-encoded PEM
-    * FLOW_PRIVATE_KEY_PATH: path to a PEM file (default secrets/flow_private.pem)
-    """
-
-    pem_env = os.environ.get("FLOW_PRIVATE_KEY")
-    if pem_env:
-        key_bytes: bytes
-        if "BEGIN" in pem_env:
-            key_bytes = pem_env.encode("utf-8")
-        else:
-            try:
-                key_bytes = base64.b64decode(pem_env)
-            except Exception:
-                key_bytes = pem_env.encode("utf-8")
-        try:
-            return serialization.load_pem_private_key(key_bytes, password=None)
-        except Exception as exc:
-            try:
-                print(f"flow private key parse error: {exc}")
-            except Exception:
-                pass
-            return None
-
                     if texts:
                         last_text = "\n".join(texts).strip()
             except Exception:
@@ -1516,142 +1442,7 @@ def _b64_decode(data: str) -> bytes:
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
 
-# ---------------------------------------------------------------------------
-# WhatsApp Flows Data API endpoint (integrity-check friendly)
-# ---------------------------------------------------------------------------
 
-def _b64_encode_json(obj: Dict[str, Any]) -> str:
-    try:
-        raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        return base64.b64encode(raw).decode("ascii")
-    except Exception:
-        # Encodes {"status":"ok"} as fallback
-        return "eyJzdGF0dXMiOiJvayJ9"
-
-
-@app.get("/flow-data", response_class=PlainTextResponse)
-def flow_data_get():
-    """Minimal GET that returns a Base64-encoded JSON body."""
-    return PlainTextResponse(content=_b64_encode_json({"status": "ok"}), media_type="text/plain")
-
-
-def _load_flow_private_key() -> Optional[object]:
-    if not _CRYPTO_OK:
-        return None
-    p = os.environ.get("FLOW_PRIVATE_KEY_PATH", os.path.join(os.getcwd(), "secrets", "flow_private.pem"))
-    try:
-        with open(p, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
-    except Exception as exc:
-        try:
-            print(f"flow private key load error: {exc}")
-        except Exception:
-            pass
-        return None
-
-
-def _rsa_oaep_decrypt(priv_key: object, data: bytes) -> Optional[bytes]:
-    try:
-        return priv_key.decrypt(
-            data,
-            asympadding.OAEP(mgf=asympadding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-        )
-    except Exception:
-        return None
-
-
-def _aescbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> Optional[bytes]:
-    try:
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
-        dec = cipher.decryptor()
-        padded = dec.update(ct) + dec.finalize()
-        unpadder = sympadding.PKCS7(128).unpadder()
-        return unpadder.update(padded) + unpadder.finalize()
-    except Exception:
-        return None
-
-
-    When decoding fails, the response body (still Base64) contains the name of
-    the offending field to aid debugging.
-            field_aliases = {
-                "encrypted_aes_key": ["encrypted_aes_key", "encryptedAesKey"],
-                "initial_vector": ["initial_vector", "initialVector"],
-                "encrypted_flow_data": ["encrypted_flow_data", "encryptedFlowData"],
-            }
-            for std_name, aliases in field_aliases.items():
-                raw_val = None
-                for alias in aliases:
-                    if alias in parsed:
-                        raw_val = parsed.get(alias)
-                        break
-                    decoded[std_name] = _b64_decode(raw_val or "")
-                    print(f"flow-data decode error: {std_name}: {e}")
-                    err_obj = {"status": "decode_error", "field": std_name}
-                    return PlainTextResponse(content=_b64_encode_json(err_obj), media_type="text/plain")
-    enc = cipher.encryptor()
-    return enc.update(padded) + enc.finalize()
-
-
-def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
-    try:
-        # Encrypted payload handling
-                enc_key_b = _b64_decode(parsed.get("encrypted_aes_key") or "")
-                iv_b = _b64_decode(parsed.get("initial_vector") or "")
-                ct_b = _b64_decode(parsed.get("encrypted_flow_data") or "")
-
-            if pt is None and len(iv_b) == 16 and (len(ct_b) % 16 == 0):
-                pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
-                if pt is not None:
-                    mode = "CBC"
-
-
-            priv = _load_flow_private_key()
-            if not priv:
-                return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
-
-            decoded: Dict[str, bytes] = {}
-            for name in ("encrypted_aes_key", "initial_vector", "encrypted_flow_data"):
-                try:
-                    decoded[name] = _b64_decode(parsed.get(name) or "")
-                except Exception as e:
-                    print(f"flow-data decode error: {name}: {e}")
-                    return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
-
-            enc_key_b = decoded["encrypted_aes_key"]
-            iv_b = decoded["initial_vector"]
-            ct_b = decoded["encrypted_flow_data"]
-
-            return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
-        # If encrypted payload present, perform decrypt -> build response -> encrypt
-        try:
-            parsed = json.loads(body.decode("utf-8")) if body else {}
-        except Exception:
-            parsed = {}
-
-        if _CRYPTO_OK and isinstance(parsed, dict) and {
-            "encrypted_flow_data",
-            "encrypted_aes_key",
-            "initial_vector",
-        }.issubset(parsed.keys()):
-            try:
-                priv = _load_flow_private_key()
-                if not priv:
-                    raise RuntimeError("private_key_unavailable")
-                enc_key_b = base64.b64decode(parsed.get("encrypted_aes_key") or "")
-                iv_b = base64.b64decode(parsed.get("initial_vector") or "")
-                ct_b = base64.b64decode(parsed.get("encrypted_flow_data") or "")
-            except Exception as e:
-                print(f"flow-data decode error: {e}")
-                return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
-
-            # Decrypt AES key with RSA OAEP SHA-256
-            aes_key = _rsa_oaep_decrypt(priv, enc_key_b) if priv else None
-            if not aes_key:
-                return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
-
-            # Try AES-GCM first, then AES-CBC
-            pt = None
-            mode = None
             if len(iv_b) in (12, 16):
                 pt = _aesgcm_decrypt(aes_key, iv_b, ct_b)
                 if pt is not None:
