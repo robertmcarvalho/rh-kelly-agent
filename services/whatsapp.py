@@ -1522,7 +1522,22 @@ async def flow_data_post(request: Request):
     """Flow Data API endpoint: always returns Base64-encoded body.
 
     This implementation is permissive to pass the integrity check. It echoes
-    back a simple JSON object encoded in Base64 regardless of input payload.
+            except Exception as e:
+                print(f"flow-data decode error (private_key): {e}")
+                return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
+
+            try:
+            except Exception as e:
+                print(f"flow-data decode error (encrypted_aes_key): {e}")
+                return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
+
+            try:
+            except Exception as e:
+                print(f"flow-data decode error (initial_vector): {e}")
+                return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
+
+            try:
+                print(f"flow-data decode error (encrypted_flow_data): {e}")
     """
     try:
         # capture headers/body for debugging
