@@ -1428,6 +1428,23 @@ def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
 
         content = genai_types.Content(parts=[genai_types.Part(text=msg)])
         last_text = None
+def _b64_decode(data: str) -> bytes:
+    """Decode Base64 (standard or urlsafe) handling missing padding.
+
+    Returns the decoded bytes or raises ValueError if decoding fails.
+    """
+    if not data:
+        return b""
+    s = data.strip()
+    padding = "=" * (-len(s) % 4)
+    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            return decoder(s + padding)
+        except Exception:
+            continue
+    raise ValueError("invalid_base64")
+
+
         count = 0
         for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
             count += 1
@@ -1508,33 +1525,29 @@ def _aescbc_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
 
 def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
     try:
-        return AESGCM(key).decrypt(iv, data, None)
-    except Exception:
-        return None
+        # Encrypted payload handling
+                enc_key_b = _b64_decode(parsed.get("encrypted_aes_key") or "")
+                iv_b = _b64_decode(parsed.get("initial_vector") or "")
+                ct_b = _b64_decode(parsed.get("encrypted_flow_data") or "")
+
+            if pt is None and len(iv_b) == 16 and (len(ct_b) % 16 == 0):
+                pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
+                if pt is not None:
+                    mode = "CBC"
 
 
-def _aesgcm_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
-    return AESGCM(key).encrypt(iv, pt, None)
+            def _invert_bytes(data: bytes) -> bytes:
+                return bytes(b ^ 0xFF for b in data)
+            if mode == "GCM":
+                resp_iv = _invert_bytes(iv_b)
+                ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
+            elif mode == "CBC":
+                resp_iv = _invert_bytes(iv_b)
+                ct_out = _aescbc_encrypt(aes_key, resp_iv, pt_resp)
+            else:
+                return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
 
-
-@app.post("/flow-data", response_class=PlainTextResponse)
-async def flow_data_post(request: Request):
-    """Flow Data API endpoint: always returns Base64-encoded body.
-
-    This implementation is permissive to pass the integrity check. It echoes
-    back a simple JSON object encoded in Base64 regardless of input payload.
-    """
-    try:
-        # capture headers/body for debugging
-        try:
-            hdrs = {k.lower(): v for k, v in request.headers.items()}
-            body_bytes = await request.body()
-            _FLOW_LAST["headers"] = hdrs
-            _FLOW_LAST["body"] = body_bytes.decode("utf-8", errors="ignore")
-            _FLOW_LAST["ts"] = int(time.time())
-        except Exception:
-            pass
-        body = await request.body()
+            return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
         # If encrypted payload present, perform decrypt -> build response -> encrypt
         try:
             parsed = json.loads(body.decode("utf-8")) if body else {}
