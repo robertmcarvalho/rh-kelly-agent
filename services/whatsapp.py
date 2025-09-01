@@ -22,6 +22,7 @@ import json
 import time
 import re
 import binascii
+import logging
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -48,12 +49,38 @@ except Exception:
     _CRYPTO_OK = False
 
 # ---------------------------------------------------------------------------
+# Environment variable helpers
+# ---------------------------------------------------------------------------
+
+REQUIRED_ENV_VARS = [
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "VERIFY_TOKEN",
+    "GOOGLE_API_KEY",
+]
+
+
+def _require_env(var: str) -> str:
+    """Return environment variable value or raise HTTPException."""
+    value = os.environ.get(var)
+    if not value:
+        logging.error("Environment variable %s is missing", var)
+        raise HTTPException(status_code=500, detail=f"Missing environment variable: {var}")
+    return value
+
+
+def _check_required_env_vars() -> None:
+    missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
+    if missing:
+        logging.error("Missing required environment variables: %s", ", ".join(missing))
+
+# ---------------------------------------------------------------------------
 # FunÃ§Ãµes utilitÃ¡rias de envio de mensagem
 # ---------------------------------------------------------------------------
 
 def _get_auth_headers() -> Dict[str, str]:
     """ObtÃ©m os cabeÃ§alhos de autenticaÃ§Ã£o para a API do WhatsApp."""
-    token = os.environ["WHATSAPP_ACCESS_TOKEN"]
+    token = _require_env("WHATSAPP_ACCESS_TOKEN")
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
@@ -100,7 +127,7 @@ def _b64_decode(s: str) -> bytes:
     return b""
 def send_text_message(destino: str, texto: str) -> None:
     """Envia uma mensagem de texto simples."""
-    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    phone_id = _require_env("WHATSAPP_PHONE_NUMBER_ID")
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     payload = {
         "messaging_product": "whatsapp",
@@ -126,7 +153,7 @@ def send_button_message(destino: str, corpo: str, botoes: List[str]) -> None:
         botoes: lista de rÃ³tulos dos botÃµes a serem exibidos. Cada botÃ£o recebe um id
                 sequencial (opcao_1, opcao_2, etc.) para identificar a resposta.
     """
-    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    phone_id = _require_env("WHATSAPP_PHONE_NUMBER_ID")
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     # WhatsApp limits: title 1..20 chars (no newlines). Sanitize labels.
     def _sanitize_button_title(txt: str, idx: int) -> str:
@@ -172,7 +199,7 @@ def send_list_message(destino: str, corpo: str, opcoes: List[str], botao: str = 
         opcoes: lista de tÃ­tulos das linhas (cada uma vira uma row).
         botao: rÃ³tulo do botÃ£o que abre a lista.
     """
-    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    phone_id = _require_env("WHATSAPP_PHONE_NUMBER_ID")
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     # WhatsApp list row title max 24 chars. Sanitize.
     def _sanitize_row_title(txt: str, idx: int) -> str:
@@ -218,7 +245,7 @@ def send_button_message_pairs(destino: str, corpo: str, pairs: List[Any]) -> Non
     pairs: lista de tuplas (id, title) ou dicts {id,title}.
     Mantém reply.id completo e sanitiza apenas o título (≤20 chars).
     """
-    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    phone_id = _require_env("WHATSAPP_PHONE_NUMBER_ID")
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     def _sanitize_title(t: str) -> str:
         s = (t or "").strip().replace("\n", " ")
@@ -258,7 +285,7 @@ def send_list_message_rows(destino: str, corpo: str, rows_in: List[Any], botao: 
     rows_in aceita tuplas (id, title) ou (id, title, description),
     ou dicts {id, title} ou {id, title, description}.
     """
-    phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
+    phone_id = _require_env("WHATSAPP_PHONE_NUMBER_ID")
     url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     def _sanitize_row_title(txt: str, idx: int) -> str:
         t = (txt or "").strip().replace("\n", " ")
@@ -795,7 +822,7 @@ def _save_lead_record(user_id: str) -> None:
 
 def _download_whatsapp_media(media_id: str) -> Optional[Dict[str, Any]]:
     try:
-        token = os.environ["WHATSAPP_ACCESS_TOKEN"]
+        token = _require_env("WHATSAPP_ACCESS_TOKEN")
         # 1) Obter URL
         meta = requests.get(
             f"https://graph.facebook.com/v19.0/{media_id}",
@@ -865,6 +892,11 @@ def processar_resposta_do_agente(destino: str, resposta: Dict[str, Any]) -> None
 
 app = FastAPI()
 
+
+@app.on_event("startup")
+def _startup_check_env() -> None:
+    _check_required_env_vars()
+
 @app.get("/")
 def healthcheck():
     return {"status": "ok"}
@@ -875,6 +907,9 @@ def verify_webhook(request: Request):
     Endpoint para a verificaÃ§Ã£o do webhook do WhatsApp (conforme documentaÃ§Ã£o da Meta).
     """
     verify_token = os.environ.get("VERIFY_TOKEN")
+    if not verify_token:
+        logging.error("Environment variable VERIFY_TOKEN is missing")
+        raise HTTPException(status_code=500, detail="VERIFY_TOKEN not configured")
     if (
         request.query_params.get("hub.mode") == "subscribe"
         and request.query_params.get("hub.verify_token") == verify_token
@@ -1403,58 +1438,36 @@ def llm_ping():
         }
 
 
-class SendButtonsRequest(BaseModel):
-    to: str
-    body: str
-    buttons: List[str]
+        raise HTTPException(status_code=400, detail="buttons cannot exceed 3 entries")
+
+    send_button_message(payload.to, payload.body, btns)
+    return {"status": "ok"}
 
 
-@app.post("/send-buttons")
-def send_buttons_endpoint(payload: SendButtonsRequest, authorization: Optional[str] = Header(default=None)):
-    """Endpoint para disparar mensagem com botÃµes (mÃ¡x 3) para testes.
+@app.get("/agent-ping")
+def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
+    """Passa uma mensagem simples ao agente via Runner e retorna o texto final."""
+    uid = user_id or "diagnostic-user"
+    msg = text or "ping"
+    try:
+        # garante sessão
+        try:
+            _ = _session_service.get_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
+        except Exception:
+            _ = None
+        if not _:
+            _session_service.create_session_sync(app_name=_APP_NAME, user_id=uid, session_id=uid)
 
-    Se INTERNAL_API_TOKEN estiver definida, exige Authorization: Bearer <token>.
-    """
-    required_token = os.environ.get("INTERNAL_API_TOKEN")
-    if required_token:
-        if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing Bearer token")
-        token = authorization.split(" ", 1)[1]
-        if token != required_token:
-            raise HTTPException(status_code=403, detail="Invalid token")
-
-    btns = [b.strip() for b in (payload.buttons or []) if isinstance(b, str) and b.strip()]
-    if not btns:
-        raise HTTPException(status_code=400, detail="buttons must be a non-empty list of labels")
-    if len(btns) > 3:
-        count = 0
-        for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
-            count += 1
-            try:
-                if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
-                    parts = getattr(event.content, "parts", None) or []
-                    texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
-                    if texts:
-                        last_text = "\n".join(texts).strip()
-            except Exception:
-                pass
-        return {"status": "ok", "events": count, "text": last_text}
-    except Exception as exc:
-        return {"status": "error", "error": str(exc)}
-
-
-            if len(iv_b) in (12, 16):
-                pt = _aesgcm_decrypt(aes_key, iv_b, ct_b)
-                if pt is not None:
-                    mode = "GCM"
-            if pt is None:
-                # CBC requires IV length 16 and ciphertext multiple of 16
-                if len(iv_b) == 16 and (len(ct_b) % 16 == 0):
-                    pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
-                    if pt is not None:
-                        mode = "CBC"
-
-            # Build a minimal OK response payload (could echo action)
+        content = genai_types.Content(parts=[genai_types.Part(text=msg)])
+        last_text = None
+@app.post("/flows/data", response_class=PlainTextResponse)
+def flow_data_post() -> PlainTextResponse:  # pragma: no cover - diagnostic stub
+    """Placeholder Flow data handler."""
+    return PlainTextResponse(content=_b64_encode_json({"status": "not_implemented"}), media_type="text/plain")
+@app.get("/flows/data", response_class=PlainTextResponse)
+def flow_data_get() -> PlainTextResponse:  # pragma: no cover - diagnostic stub
+    """Placeholder Flow data retrieval."""
+    return PlainTextResponse(content=_b64_encode_json({"status": "not_implemented"}), media_type="text/plain")
             try:
                 incoming = json.loads(pt.decode("utf-8")) if pt else {}
             except Exception:
