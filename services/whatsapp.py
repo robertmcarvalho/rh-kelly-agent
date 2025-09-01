@@ -20,6 +20,8 @@ import base64
 import requests
 import json
 import time
+import re
+import binascii
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -75,6 +77,27 @@ def _parse_first_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
         return None
     return None
 
+def _b64_decode(s: str) -> bytes:
+    """Decodifica string em Base64 (padrão ou urlsafe) ou hexadecimal.
+
+    Tenta decodificar usando ``base64.b64decode`` e ``base64.urlsafe_b64decode``.
+    Se ambas as tentativas falharem e a string contiver apenas caracteres
+    hexadecimais, aplica ``binascii.unhexlify``.
+    """
+    try:
+        return base64.b64decode(s)
+    except Exception:
+        pass
+    try:
+        return base64.urlsafe_b64decode(s)
+    except Exception:
+        pass
+    if re.fullmatch(r"[0-9a-fA-F]+", s):
+        try:
+            return binascii.unhexlify(s)
+        except Exception:
+            pass
+    return b""
 def send_text_message(destino: str, texto: str) -> None:
     """Envia uma mensagem de texto simples."""
     phone_id = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
