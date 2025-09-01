@@ -1452,6 +1452,32 @@ def _b64_decode(data: str) -> bytes:
                 if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
                     parts = getattr(event.content, "parts", None) or []
                     texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+    """Load the Flow private key from env var or file path.
+
+    Supports two mechanisms:
+    * FLOW_PRIVATE_KEY: raw PEM string or Base64-encoded PEM
+    * FLOW_PRIVATE_KEY_PATH: path to a PEM file (default secrets/flow_private.pem)
+    """
+
+    pem_env = os.environ.get("FLOW_PRIVATE_KEY")
+    if pem_env:
+        key_bytes: bytes
+        if "BEGIN" in pem_env:
+            key_bytes = pem_env.encode("utf-8")
+        else:
+            try:
+                key_bytes = base64.b64decode(pem_env)
+            except Exception:
+                key_bytes = pem_env.encode("utf-8")
+        try:
+            return serialization.load_pem_private_key(key_bytes, password=None)
+        except Exception as exc:
+            try:
+                print(f"flow private key parse error: {exc}")
+            except Exception:
+                pass
+            return None
+
                     if texts:
                         last_text = "\n".join(texts).strip()
             except Exception:
