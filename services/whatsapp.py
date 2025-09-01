@@ -72,9 +72,9 @@ def _require_env(var: str) -> str:
 def _check_required_env_vars() -> None:
     missing = [v for v in REQUIRED_ENV_VARS if not os.environ.get(v)]
     if missing:
-        msg = "Missing required environment variables: " + ", ".join(missing)
-        logging.error(msg)
-        raise RuntimeError(msg)
+        detail = "Missing required environment variables: " + ", ".join(missing)
+        logging.error(detail)
+        raise HTTPException(status_code=500, detail=detail)
 
 # ---------------------------------------------------------------------------
 # FunÃ§Ãµes utilitÃ¡rias de envio de mensagem
