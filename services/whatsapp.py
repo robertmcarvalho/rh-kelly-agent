@@ -1536,9 +1536,10 @@ def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
                     mode = "CBC"
 
 
-            def _invert_bytes(data: bytes) -> bytes:
-                return bytes(b ^ 0xFF for b in data)
-            if mode == "GCM":
+            priv = _load_flow_private_key()
+            if not priv:
+                return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
+
                 resp_iv = _invert_bytes(iv_b)
                 ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
             elif mode == "CBC":
