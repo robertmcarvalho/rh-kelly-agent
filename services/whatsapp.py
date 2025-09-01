@@ -37,16 +37,6 @@ except Exception:
     redis = None  # type: ignore
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-try:
-    # Crypto helpers for Flow encryption
-    from cryptography.hazmat.primitives import hashes, padding as sympadding
-    from cryptography.hazmat.primitives.asymmetric import padding as asympadding, rsa
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    _CRYPTO_OK = True
-except Exception:
-    _CRYPTO_OK = False
 
 # ---------------------------------------------------------------------------
 # Environment variable helpers
@@ -727,21 +717,20 @@ def _send_vagas_menu(destino: str, cidade: str, user_id: Optional[str] = None) -
         return
     # Envia detalhes completos em mensagem separada para melhor leitura
     lines = ["Vagas disponíveis:"]
-    rows_labels = []  # (id, title curto)
+    rows: List[Any] = []  # (id, title, description)
     for v in vagas:
         vid = str(v.get("vaga_id") or v.get("VAGA_ID") or "?")
-        farm = str(v.get("farmacia") or v.get("FARMACIA") or "?")
         turno = str(v.get("turno") or v.get("TURNO") or "?")
         taxa = str(v.get("taxa_entrega") or v.get("TAXA_ENTREGA") or "?")
-        lines.append(f"• ID: {vid}\n  Farmácia: {farm}\n  Turno: {turno}\n  Taxa: {taxa}")
-        rows_labels.append((vid, f"ID {vid} - {turno}"))
+        lines.append(f"• ID: {vid}\n  Turno: {turno}\n  Taxa: {taxa}")
+        rows.append((vid, f"ID {vid}", f"Turno: {turno} | Taxa: {taxa}"))
     detalhes = "\n".join(lines)
     send_text_message(destino, detalhes)
     # Em seguida, envia a lista com um corpo curto e registra menu
     body_list = "Selecione uma vaga no menu abaixo 👇"
-    send_list_message_rows(destino, body_list, rows_labels, botao="Ver vagas")
+    send_list_message_rows(destino, body_list, rows, botao="Ver vagas")
     if user_id:
-        _set_last_menu(user_id, _load_ctx(user_id), menu_type="list", body=body_list, items=rows_labels, botao="Ver vagas")
+        _set_last_menu(user_id, _load_ctx(user_id), menu_type="list", body=body_list, items=rows, botao="Ver vagas")
 
 def _find_vaga_by_row_title(cidade: str, title_or_id: str) -> Optional[Dict[str, Any]]:
     vagas = _fetch_vagas_by_city(cidade)
@@ -1262,12 +1251,11 @@ async def handle_webhook(request: Request):
                     link_url = "https://app.pipefy.com/public/form/v2m7kpB-"
                     # Reapresenta detalhes completos antes do link
                     det_vid = ctx["vaga"].get("VAGA_ID")
-                    det_farm = ctx["vaga"].get("FARMACIA")
                     det_turno = ctx["vaga"].get("TURNO")
                     det_taxa = ctx["vaga"].get("TAXA_ENTREGA")
                     send_text_message(from_number, (
                         f"Vaga selecionada:\n"
-                        f"• ID: {det_vid}\n• Farmácia: {det_farm}\n• Turno: {det_turno}\n• Taxa: {det_taxa}"
+                        f"• ID: {det_vid}\n• Turno: {det_turno}\n• Taxa: {det_taxa}"
                     ))
                     send_text_message(from_number, (
                         f"Ótimo! Para concluir sua matrícula, preencha o formulário: {link_url}.\n"
@@ -1277,8 +1265,8 @@ async def handle_webhook(request: Request):
                     ctx["stage"] = "final"
                     _save_ctx(from_number, ctx)
                     return {"status": "handled"}
-        except Exception as flow_exc:
-            print(f"flow error: {flow_exc}")
+        except Exception as exc:
+            print(f"handler error: {exc}")
 
         # Modo estrito: se há um stage ativo e a entrada não foi tratada acima,
         # reenvia o último menu em vez de chamar LLM.
@@ -1477,27 +1465,6 @@ def flow_data_get() -> PlainTextResponse:  # pragma: no cover - diagnostic stub
                 incoming = {}
             response_obj = {"status": "ok"}
             if isinstance(incoming, dict) and incoming:
-                response_obj["echo"] = incoming.get("action") or incoming
-
-            pt_resp = json.dumps(response_obj, ensure_ascii=False).encode("utf-8")
-
-            # Enc        # Encrypt response using inverted IV and same AES key
-        def _invert_bytes(data: bytes) -> bytes:
-            return bytes([(b ^ 0xFF) for b in data])
-
-        if mode == "GCM":
-            resp_iv = _invert_bytes(iv_b)
-            ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
-        elif mode == "CBC":
-            resp_iv = _invert_bytes(iv_b)
-            ct_out = _aescbc_encrypt(aes_key, resp_iv, pt_resp)
-        else:
-            return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
-
-        return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
-        # Non-encrypted mode: return Base64-encoded minimal body
-        reply: Dict[str, Any] = {"status": "ok"}
-        if isinstance(parsed, dict) and parsed:
             reply["echo"] = parsed.get("action") or parsed
         return PlainTextResponse(content=_b64_encode_json(reply), media_type="text/plain")
     except Exception as exc:
