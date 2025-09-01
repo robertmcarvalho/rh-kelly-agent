@@ -20,6 +20,8 @@ import base64
 import requests
 import json
 import time
+import re
+import binascii
 from urllib.parse import urlparse
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -1429,8 +1431,10 @@ def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
         content = genai_types.Content(parts=[genai_types.Part(text=msg)])
         last_text = None
 def _b64_decode(data: str) -> bytes:
-    """Decode Base64 (standard or urlsafe) handling missing padding.
+    """Decode Base64 (standard or urlsafe) or hexadecimal text.
 
+    The function is permissive with missing padding for Base64 inputs and falls
+    back to hexadecimal decoding when the string contains only hex characters.
     Returns the decoded bytes or raises ValueError if decoding fails.
     """
     if not data:
@@ -1442,6 +1446,11 @@ def _b64_decode(data: str) -> bytes:
             return decoder(s + padding)
         except Exception:
             continue
+    if re.fullmatch(r"[0-9a-fA-F]+", s):
+        try:
+            return binascii.unhexlify(s)
+        except Exception:
+            pass
     raise ValueError("invalid_base64")
 
 
@@ -1566,13 +1575,17 @@ def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
             if not priv:
                 return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
 
-                resp_iv = _invert_bytes(iv_b)
-                ct_out = _aesgcm_encrypt(aes_key, resp_iv, pt_resp)
-            elif mode == "CBC":
-                resp_iv = _invert_bytes(iv_b)
-                ct_out = _aescbc_encrypt(aes_key, resp_iv, pt_resp)
-            else:
-                return PlainTextResponse(content=_b64_encode_json({"status": "unsupported_cipher"}), media_type="text/plain")
+            decoded: Dict[str, bytes] = {}
+            for name in ("encrypted_aes_key", "initial_vector", "encrypted_flow_data"):
+                try:
+                    decoded[name] = _b64_decode(parsed.get(name) or "")
+                except Exception as e:
+                    print(f"flow-data decode error: {name}: {e}")
+                    return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
+
+            enc_key_b = decoded["encrypted_aes_key"]
+            iv_b = decoded["initial_vector"]
+            ct_b = decoded["encrypted_flow_data"]
 
             return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
         # If encrypted payload present, perform decrypt -> build response -> encrypt
