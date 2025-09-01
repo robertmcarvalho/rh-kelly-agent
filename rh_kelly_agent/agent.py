@@ -215,4 +215,8 @@ root_agent.instruction = ("Voce e a Kelly, especialista em recrutamento da nossa
 # Configura o backend de memória para usar Redis. A URI é lida da variável REDIS_URL.
 redis_url = os.environ.get("REDIS_URL")
 if redis_url and RedisMemory is not None:
-    root_agent.memory_backend = RedisMemory(url=redis_url)
+    try:
+        root_agent.memory_backend = RedisMemory(url=redis_url)
+    except Exception as _mem_exc:
+        # Falha ao inicializar o backend de memória; segue sem persistência externa
+        print(f"RedisMemory init error: {_mem_exc}")
