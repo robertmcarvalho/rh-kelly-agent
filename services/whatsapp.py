@@ -1550,10 +1550,23 @@ def _aescbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> Optional[bytes]:
         return None
 
 
-def _aescbc_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
-    padder = sympadding.PKCS7(128).padder()
-    padded = padder.update(pt) + padder.finalize()
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    When decoding fails, the response body (still Base64) contains the name of
+    the offending field to aid debugging.
+            field_aliases = {
+                "encrypted_aes_key": ["encrypted_aes_key", "encryptedAesKey"],
+                "initial_vector": ["initial_vector", "initialVector"],
+                "encrypted_flow_data": ["encrypted_flow_data", "encryptedFlowData"],
+            }
+            for std_name, aliases in field_aliases.items():
+                raw_val = None
+                for alias in aliases:
+                    if alias in parsed:
+                        raw_val = parsed.get(alias)
+                        break
+                    decoded[std_name] = _b64_decode(raw_val or "")
+                    print(f"flow-data decode error: {std_name}: {e}")
+                    err_obj = {"status": "decode_error", "field": std_name}
+                    return PlainTextResponse(content=_b64_encode_json(err_obj), media_type="text/plain")
     enc = cipher.encryptor()
     return enc.update(padded) + enc.finalize()
 
