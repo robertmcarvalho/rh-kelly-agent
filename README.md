@@ -10,6 +10,7 @@ The WhatsApp service requires the following variables to be defined before start
 - `WHATSAPP_PHONE_NUMBER_ID` – Phone number ID associated with the Business account.
 - `VERIFY_TOKEN` – Secret token used to validate the webhook with Meta.
 - `GOOGLE_API_KEY` – API key for Google Generative AI services.
+- `ADK_API_URL` – URL of the ADK API server used by the agent runner.
 
 Optional variables such as `REDIS_URL`, `INTERNAL_API_TOKEN`, `GSHEETS_SERVICE_ACCOUNT_JSON`, and others may further customize behavior.
 
