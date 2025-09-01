@@ -1451,6 +1451,30 @@ def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
 
         content = genai_types.Content(parts=[genai_types.Part(text=msg)])
         last_text = None
+def _b64_decode(data: str) -> bytes:
+    """Decode Base64 (standard or urlsafe) or hexadecimal text.
+
+    The function is permissive with missing padding for Base64 inputs and falls
+    back to hexadecimal decoding when the string contains only hex characters.
+    Returns the decoded bytes or raises ValueError if decoding fails.
+    """
+    if not data:
+        return b""
+    s = data.strip()
+    padding = "=" * (-len(s) % 4)
+    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            return decoder(s + padding)
+        except Exception:
+            continue
+    if re.fullmatch(r"[0-9a-fA-F]+", s):
+        try:
+            return binascii.unhexlify(s)
+        except Exception:
+            pass
+    raise ValueError("invalid_base64")
+
+
         count = 0
         for event in _runner.run(user_id=uid, session_id=uid, new_message=content):
             count += 1
@@ -1458,6 +1482,32 @@ def agent_ping(user_id: Optional[str] = None, text: Optional[str] = None):
                 if getattr(event, "author", "user") != "user" and getattr(event, "content", None):
                     parts = getattr(event.content, "parts", None) or []
                     texts = [getattr(p, "text", None) for p in parts if getattr(p, "text", None)]
+    """Load the Flow private key from env var or file path.
+
+    Supports two mechanisms:
+    * FLOW_PRIVATE_KEY: raw PEM string or Base64-encoded PEM
+    * FLOW_PRIVATE_KEY_PATH: path to a PEM file (default secrets/flow_private.pem)
+    """
+
+    pem_env = os.environ.get("FLOW_PRIVATE_KEY")
+    if pem_env:
+        key_bytes: bytes
+        if "BEGIN" in pem_env:
+            key_bytes = pem_env.encode("utf-8")
+        else:
+            try:
+                key_bytes = base64.b64decode(pem_env)
+            except Exception:
+                key_bytes = pem_env.encode("utf-8")
+        try:
+            return serialization.load_pem_private_key(key_bytes, password=None)
+        except Exception as exc:
+            try:
+                print(f"flow private key parse error: {exc}")
+            except Exception:
+                pass
+            return None
+
                     if texts:
                         last_text = "\n".join(texts).strip()
             except Exception:
@@ -1521,43 +1571,57 @@ def _aescbc_decrypt(key: bytes, iv: bytes, ct: bytes) -> Optional[bytes]:
         return None
 
 
-def _aescbc_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
-    padder = sympadding.PKCS7(128).padder()
-    padded = padder.update(pt) + padder.finalize()
-    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    When decoding fails, the response body (still Base64) contains the name of
+    the offending field to aid debugging.
+            field_aliases = {
+                "encrypted_aes_key": ["encrypted_aes_key", "encryptedAesKey"],
+                "initial_vector": ["initial_vector", "initialVector"],
+                "encrypted_flow_data": ["encrypted_flow_data", "encryptedFlowData"],
+            }
+            for std_name, aliases in field_aliases.items():
+                raw_val = None
+                for alias in aliases:
+                    if alias in parsed:
+                        raw_val = parsed.get(alias)
+                        break
+                    decoded[std_name] = _b64_decode(raw_val or "")
+                    print(f"flow-data decode error: {std_name}: {e}")
+                    err_obj = {"status": "decode_error", "field": std_name}
+                    return PlainTextResponse(content=_b64_encode_json(err_obj), media_type="text/plain")
     enc = cipher.encryptor()
     return enc.update(padded) + enc.finalize()
 
 
 def _aesgcm_decrypt(key: bytes, iv: bytes, data: bytes) -> Optional[bytes]:
     try:
-        return AESGCM(key).decrypt(iv, data, None)
-    except Exception:
-        return None
+        # Encrypted payload handling
+                enc_key_b = _b64_decode(parsed.get("encrypted_aes_key") or "")
+                iv_b = _b64_decode(parsed.get("initial_vector") or "")
+                ct_b = _b64_decode(parsed.get("encrypted_flow_data") or "")
+
+            if pt is None and len(iv_b) == 16 and (len(ct_b) % 16 == 0):
+                pt = _aescbc_decrypt(aes_key, iv_b, ct_b)
+                if pt is not None:
+                    mode = "CBC"
 
 
-def _aesgcm_encrypt(key: bytes, iv: bytes, pt: bytes) -> bytes:
-    return AESGCM(key).encrypt(iv, pt, None)
+            priv = _load_flow_private_key()
+            if not priv:
+                return PlainTextResponse(content=_b64_encode_json({"status": "key_error"}), media_type="text/plain")
 
+            decoded: Dict[str, bytes] = {}
+            for name in ("encrypted_aes_key", "initial_vector", "encrypted_flow_data"):
+                try:
+                    decoded[name] = _b64_decode(parsed.get(name) or "")
+                except Exception as e:
+                    print(f"flow-data decode error: {name}: {e}")
+                    return PlainTextResponse(content=_b64_encode_json({"status": "decode_error"}), media_type="text/plain")
 
-@app.post("/flow-data", response_class=PlainTextResponse)
-async def flow_data_post(request: Request):
-    """Flow Data API endpoint: always returns Base64-encoded body.
+            enc_key_b = decoded["encrypted_aes_key"]
+            iv_b = decoded["initial_vector"]
+            ct_b = decoded["encrypted_flow_data"]
 
-    This implementation is permissive to pass the integrity check. It echoes
-    back a simple JSON object encoded in Base64 regardless of input payload.
-    """
-    try:
-        # capture headers/body for debugging
-        try:
-            hdrs = {k.lower(): v for k, v in request.headers.items()}
-            body_bytes = await request.body()
-            _FLOW_LAST["headers"] = hdrs
-            _FLOW_LAST["body"] = body_bytes.decode("utf-8", errors="ignore")
-            _FLOW_LAST["ts"] = int(time.time())
-        except Exception:
-            pass
-        body = await request.body()
+            return PlainTextResponse(content=base64.b64encode(ct_out).decode("ascii"), media_type="text/plain")
         # If encrypted payload present, perform decrypt -> build response -> encrypt
         try:
             parsed = json.loads(body.decode("utf-8")) if body else {}
