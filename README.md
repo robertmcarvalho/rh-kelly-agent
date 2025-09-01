@@ -14,4 +14,4 @@ The WhatsApp service requires the following variables to be defined before start
 
 Optional variables such as `REDIS_URL`, `INTERNAL_API_TOKEN`, `GSHEETS_SERVICE_ACCOUNT_JSON`, and others may further customize behavior.
 
-Configure these variables in your deployment environment or a `.env` file to ensure the application initializes correctly.
+The application validates these variables during startup and will log an error and refuse to run if any are missing. Configure them in your deployment environment or a `.env` file to ensure the service initializes correctly.
