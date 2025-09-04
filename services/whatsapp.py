@@ -147,18 +147,20 @@ def _parse_first_json(text: Optional[str]) -> Optional[Dict[str, Any]]:
     if not text:
         return None
     t = text.strip()
-    if t.startswith("{') and t.endswith("}"):
+    # Caminho rápido: objeto JSON completo
+    if t.startswith("{") and t.endswith("}"):
         try:
             return json.loads(t)
         except Exception:
-            return None
+            pass
+    # Fallback: tenta extrair o primeiro objeto JSON dentro do texto
     try:
-        start = t.find("{')
+        start = t.find("{")
         end = t.rfind("}")
         if start != -1 and end != -1 and end > start:
             return json.loads(t[start:end+1])
     except Exception:
-        return None
+        pass
     return None
 
 def send_text_message(destino: str, texto: str) -> None:
