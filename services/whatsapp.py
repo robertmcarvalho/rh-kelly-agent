@@ -68,7 +68,8 @@ def _load_intro_script() -> Dict[str, Any]:
         try:
             base = os.path.dirname(os.path.dirname(__file__))
             path = os.path.join(base, "rh_kelly_agent", "data", "roteiro_intro.json")
-            with open(path, "r", encoding="utf-8") as f:
+            # Tolerate UTF-8 BOM (files saved on Windows PowerShell)
+            with open(path, "r", encoding="utf-8-sig") as f:
                 _INTRO_SCRIPT = json.load(f)
         except Exception as exc:
             print(f"load intro script error: {exc}")
