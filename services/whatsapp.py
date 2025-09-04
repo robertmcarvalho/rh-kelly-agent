@@ -560,7 +560,22 @@ def _handle_city_selection(destino: str, user_id: str, selected: str) -> Dict[st
     _send_requirement_question(destino, "req_moto", user_id=user_id)
     return {"handled": True}
 
-def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None) -> None:
+
+def _handle_city_selection_reject(destino: str, user_id: str, selected: str) -> Dict[str, Any]:
+    cidade = _match_city(selected)
+    if not cidade:
+        return {"handled": False}
+    ctx = {**_load_ctx(user_id)}
+    ctx.update({"cidade": cidade, "aprovado": False})
+    _save_ctx(user_id, ctx)
+    try:
+        send_text_message(destino, f"Obrigado! Cidade registrada: {cidade}. Seus dados foram salvos para futuras oportunidades.")
+    except Exception:
+        pass
+    _save_lead_record(user_id)
+    ctx["stage"] = "final"
+    _save_ctx(user_id, ctx)
+    return {"handled": True}def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
     if ctx is None:
         ctx = _load_ctx(user_id) or {}
 
@@ -570,11 +585,7 @@ def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = 
         send_text_message(destino, "No momento, não consegui obter as cidades com vagas.")
         return
     nome = ctx.get("nome", "candidato(a)")
-    pergunta = (
-        "Antes de começarmos, preciso saber: \n"
-        "Em qual cidade você atua como entregador?\n"
-        "Selecione no menu abaixo"
-    )
+    pergunta = prompt or ("Antes de come??armos, preciso saber: \\n" "Em qual cidade vocG atua como entregador?\\n" "Selecione no menu abaixo")
     pairs = [(c, c) for c in cities]
     if len(cities) > 3:
         send_list_message_rows(destino, pergunta, pairs, botao="Ver cidades")
@@ -788,7 +799,7 @@ def _save_lead_record(user_id: str) -> None:
                     "DATA_ISO": iso,
                     "NOME": row.get("nome"),
                     "TELEFONE": row.get("user_id"),
-                    "PERFIL_APROVADO": "Sim" if aprovado else "Não",
+                    "PERFIL_APROVADO": "Sim" if aprovado else "N�o",
                     "PERFIL_NOTA": score,
                     "PROTOCOLO": protocolo,
                     "TURNO_ESCOLHIDO": turno,
@@ -999,6 +1010,22 @@ async def handle_webhook(request: Request):
         if stage == "final":
             send_text_message(from_number, "O atendimento foi finalizado. Em breve, alguém da nossa equipe entrará em contato pelos canais oficiais de atendimento da CoopMob.")
             return {"status": "handled"}
+        
+        # Early handle: if user declines during intro, collect city for registry
+        try:
+            st_intro = str(ctx.get("stage") or "")
+            yn_pre = _normalize_yes_no(_strip_accents(texto_usuario))
+        except Exception:
+            yn_pre = None
+        if st_intro.startswith("intro_") and yn_pre is False:
+            ctx["stage"] = "await_city_reject"
+            _save_ctx(from_number, ctx)
+            prompt = (
+                "Antes de encerrar, em qual cidade você atua como entregador?\n"
+                "Selecione uma opção abaixo"
+            )
+            _send_city_menu(from_number, from_number, ctx=ctx, prompt=prompt)
+            return {"status": "handled"}
 
         try:
             last_ts = float(ctx.get("last_message_at") or 0)
@@ -1132,7 +1159,7 @@ async def handle_webhook(request: Request):
             return {"status": "handled"}
 
         try:
-            handled = _handle_city_selection(from_number, from_number, texto_usuario)
+            st_local = str(ctx.get("stage") or ""); handled = {"handled": False}; handled = _handle_city_selection(from_number, from_number, texto_usuario) if st_local == "await_city" else (_handle_city_selection_reject(from_number, from_number, texto_usuario) if st_local == "await_city_reject" else {"handled": False})
             if handled.get("handled"):
                 return {"status": "handled"}
         except Exception as sel_exc:
@@ -1471,3 +1498,9 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+
+
+
+
