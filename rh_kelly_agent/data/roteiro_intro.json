@@ -1,36 +1,12 @@
 {
   "intro": [
-    {
-      "id": 1,
-      "text": "👋 Fala, {nome}! Tudo certo?\nAqui é a Kelly, da RH Kelly.\nJá pensou em ser dono do seu próprio trabalho e rodar com apoio de uma cooperativa? 🚀"
-    },
-    {
-      "id": 2,
-      "text": "🤝 O que é cooperativismo?\nEm vez de trabalhar para alguém, você se junta a outros entregadores: todo mundo tem voz, participa dos resultados e tem apoio jurídico, contábil e operacional.\nNa prática: ninguém é seu patrão — você faz parte da cooperativa e decide junto. 💬"
-    },
-    {
-      "id": 3,
-      "text": "📝 Como funciona para entrar?\nPara virar cooperado, existe uma cota de participação de R$ 500,00.\nPode pagar à vista ou parcelar em até 25x de R$ 20,00, com desconto em folha. ✅"
-    },
-    {
-      "id": 4,
-      "text": "💸 Pagamentos\nNada de enrolação: você recebe toda quinta-feira.\nO ciclo fecha no domingo e na quinta o pagamento já cai na conta. 📅"
-    },
-    {
-      "id": 5,
-      "text": "📦 Regras básicas\nPara rodar, pedimos duas coisas simples: uniforme e bag térmica.\n🧥 Uniforme: R$ 47,00 + frete, com 50% pagos pela cooperativa (você paga metade, em 2x).\n🎒 Bag térmica: se já tiver, ótimo! Se não tiver, pode adquirir por R$ 180,00 + frete (também em 2x).\nIsso te coloca no padrão profissional, passa confiança e aumenta as corridas. 💼"
-    },
-    {
-      "id": 6,
-      "text": "🎁 Benefícios de cooperado\n🩺 Médico online 24h grátis (mais de 30 especialidades).\n🦷 Plano odontológico por R$ 16,90/mês (pode incluir família).\n🎓 Descontos de até 75% em cursos (técnico, graduação e pós) — vale para cônjuge e filhos.\n💡 Economia de até 13% na conta de luz.\n🛡️ Seguro de vida incluso."
-    },
-    {
-      "id": 7,
-      "text": "🧭 Resumo\n• Recebimento semanal\n• Uniforme e bag com apoio da cooperativa\n• Benefícios que, por fora, custariam caro\n\nAqui você não é só motoboy: é dono de um pedaço da cooperativa.\nQuer continuar e ver as vagas? 🙂"
-    }
+    {"id": 1, "text": "👉 Fala, {nome}! Tudo certo?\nAqui é da CoopMob ✌️\nMe conta… já pensou em ser dono do seu próprio trabalho, em vez de rodar só pra enriquecer aplicativo? 🚀"},
+    {"id": 2, "text": "🔑 O que é cooperativismo?\nPensa assim: em vez de você trabalhar “pra alguém”, você se junta com outros entregadores e todo mundo tem voz, participa dos resultados e ainda tem apoio jurídico, contábil e operacional.\nNa prática: ninguém é seu patrão – você é parte da cooperativa e decide junto! 🤝"},
+    {"id": 3, "text": "💰 Como funciona pra entrar?\nPra virar cooperado, tem uma cota de participação de R$ 500,00.\nMas calma! Dá pra pagar à vista ou parcelar em até 25x de R$ 20,00, descontado direto em folha. Mais leve que um tanque cheio, né? ⛽😉"},
+    {"id": 4, "text": "📆 E os pagamentos?\nAqui não tem enrolação: você recebe toda quinta-feira. O ciclo fecha no domingo e na quinta já tá pingando na conta. 🔥"},
+    {"id": 5, "text": "Regras básicas\n👕 Pra rodar com a CoopMob a gente pede duas coisas simples: uniforme e bag.\nMas relaxa… não é gasto, é investimento que volta pra você.\n\n👉 Uniforme: custa R$ 47,00 + frete, mas a cooperativa entra junto e paga 50% pra você. Ou seja, você paga só metade, parceladinho em 2x. É menos do que gastar com lanche na rua 🍔😉\n\n👉 Bag térmica: se você já tiver, ótimo! Se não, pode pegar com a CoopMob por R$ 180 + frete, também em 2x.\nCom isso você já fica no padrão profissional, passa mais confiança e pega mais corridas.\n\n⚡ Resumindo: não é gasto, é diferencial pra você se destacar e rodar mais."},
+    {"id": 6, "text": "Mensagem 6 – Benefícios\n🌟 Agora se liga no que só quem é cooperado tem:\n\n✅ Médico online 24h grátis — atendimento de mais de 30 especialidades, na palma da mão.\n(Sabe quanto custa uma consulta particular? Fácil uns R$ 150,00… aqui é zero!) 🩺\n\n✅ Plano odontológico Uniodonto por só R$ 16,90/mês.\nVocê mantém o sorriso em dia e ainda pode incluir a família. 😁\n\n✅ Descontos de até 75% em cursos.\nQuer terminar os estudos, fazer faculdade ou curso técnico? Sai quase de graça! E vale pro cônjuge e pros filhos. 🎓\n\n✅ Economia de energia — até 13% a menos na conta de luz.\nDinheiro que sobra todo mês no bolso. ⚡\n\n✅ Seguro de vida incluso.\nProteção financeira de verdade pra você e sua família. 🛡️\n\n👉 E o melhor: isso não existe em aplicativo nenhum. Só rola porque aqui você é cooperado de verdade."},
+    {"id": 7, "text": "Então pensa comigo, {nome}:\n\nVocê recebe toda semana\n\nUsa uniforme e bag que a cooperativa banca junto com você\n\nE ainda leva benefícios que, se fosse por fora, custariam centenas de reais todo mês\n\nAqui você não é só motoboy, você é dono de um pedaço da cooperativa.\nQuer prosseguir nessa jornada pra entrar nessa com a gente? 🚀"}
   ],
-  "cta_labels": {
-    "next": "Avançar ▶️",
-    "skip": "Pular ⏭️"
-  }
+  "cta_labels": {"next": "Avançar ▶️", "skip": "Pular ⏭️"}
 }
