@@ -1,0 +1,36 @@
+{
+  "intro": [
+    {
+      "id": 1,
+      "text": "Fala, {nome}! Tudo certo?\nAqui é a Kelly, da RH Kelly.\nJá pensou em ser dono do seu próprio trabalho e rodar com apoio de uma cooperativa?"
+    },
+    {
+      "id": 2,
+      "text": "O que é cooperativismo?\nEm vez de trabalhar para alguém, você se junta a outros entregadores: todo mundo tem voz, participa dos resultados e conta com apoio jurídico, contábil e operacional.\nNa prática: ninguém é seu patrão — você faz parte da cooperativa e decide junto."
+    },
+    {
+      "id": 3,
+      "text": "Como funciona para entrar?\nPara virar cooperado, existe uma cota de participação de R$ 500,00.\nPode pagar à vista ou parcelar em até 25x de R$ 20,00, com desconto em folha."
+    },
+    {
+      "id": 4,
+      "text": "Pagamentos\nAqui não tem enrolação: você recebe toda quinta-feira.\nO ciclo fecha no domingo e na quinta o pagamento já cai na conta."
+    },
+    {
+      "id": 5,
+      "text": "Regras básicas\nPara rodar, pedimos duas coisas simples: uniforme e bag térmica.\nUniforme: R$ 47,00 + frete, com 50% pagos pela cooperativa (você paga metade, em 2x).\nBag térmica: se já tiver, ótimo! Se não tiver, pode adquirir por R$ 180,00 + frete (também em 2x).\nIsso te coloca no padrão profissional, passa mais confiança e aumenta as corridas."
+    },
+    {
+      "id": 6,
+      "text": "Benefícios de cooperado\n• Médico online 24h grátis (mais de 30 especialidades).\n• Plano odontológico por R$ 16,90/mês (pode incluir família).\n• Descontos de até 75% em cursos (técnico, graduação e pós) — vale para cônjuge e filhos.\n• Economia de até 13% na conta de luz.\n• Seguro de vida incluso."
+    },
+    {
+      "id": 7,
+      "text": "Resumo\n• Recebimento semanal\n• Uniforme e bag com apoio da cooperativa\n• Benefícios que, por fora, custariam caro\n\nAqui você não é só motoboy: é dono de um pedaço da cooperativa.\nQuer continuar e ver as vagas?"
+    }
+  ],
+  "cta_labels": {
+    "next": "Avançar",
+    "skip": "Pular"
+  }
+}

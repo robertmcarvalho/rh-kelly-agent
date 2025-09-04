@@ -1,0 +1,12 @@
+__pycache__/
+**/__pycache__/
+.mypy_cache/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+*.log
+tmp/
+rh_kelly_agent/data/interest_log.jsonl
