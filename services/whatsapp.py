@@ -799,7 +799,7 @@ def _save_lead_record(user_id: str) -> None:
                     "DATA_ISO": iso,
                     "NOME": row.get("nome"),
                     "TELEFONE": row.get("user_id"),
-                    "PERFIL_APROVADO": "Sim" if aprovado else "N�o",
+                    "PERFIL_APROVADO": "Sim" if aprovado else "N�o",
                     "PERFIL_NOTA": score,
                     "PROTOCOLO": protocolo,
                     "TURNO_ESCOLHIDO": turno,
@@ -1046,6 +1046,7 @@ async def handle_webhook(request: Request):
             if t in {"ajuda", "help"}: return "ajuda"
             if t in {"humano", "atendente", "suporte"}: return "humano"
             if t in {"status", "progresso"}: return "status"
+            if t in {"comandos", "comando", "help comandos"}: return "comandos"
             return ""
 
         cmd = _cmd(texto_usuario)
@@ -1110,8 +1111,21 @@ async def handle_webhook(request: Request):
                 "req_android": "Responda tocando em Sim ou Não.",
                 "offer_positions": "Toque em uma vaga do menu para selecionar.",
             }
-            send_text_message(from_number, f"Ajuda: {tips.get(st, 'Selecione uma opção do menu abaixo.')} ")
+            send_text_message(from_number, "Ajuda: " + (tips.get(st, "Selecione uma opcao do menu abaixo.")) + "\nDigite 'comandos' para ver a lista completa de comandos.")
             _resend_last_menu(from_number, ctx)
+        if cmd == "comandos":
+            guide = (
+                "Guia rapido de comandos:\n"
+                "- menu: reenvia o ultimo menu\n"
+                "- voltar: volta uma etapa\n"
+                "- recomecar: inicia do zero\n"
+                "- status: mostra etapa, cidade, requisitos e progresso\n"
+                "- ajuda: dica da etapa atual\n"
+                "- humano: encaminhar para atendimento humano\n\n"
+                "Dica: responda tocando nas opcoes quando possivel."
+            )
+            send_text_message(from_number, guide)
+            if ctx.get("last_menu"): _resend_last_menu(from_number, ctx)
             return {"status": "handled"}
         if cmd == "status":
             st_map = {
@@ -1498,6 +1512,8 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
 
 
 
