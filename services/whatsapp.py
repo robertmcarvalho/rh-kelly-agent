@@ -104,20 +104,13 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     if idx == len(intro_messages):
         buttons = [("Sim", "Sim"), ("Não", "Não")]
     else:
-        buttons = [("intro_next", next_label), ("ajuda", "Ajuda")]
+        buttons = [("intro_next", next_label)]
 
     # Envia o texto longo e, em seguida, um corpo compacto com botões,
     # evitando que 'ajuda/menu' reenviem o texto longo da introducao.
-    try:
-        send_text_message(destino, text)
-    except Exception:
-        pass
-    _fallback_next = "Avancar"
-    body_compact = "Deseja prosseguir?" if idx == len(intro_messages) else str(next_label or _fallback_next)
-    send_button_message_pairs(destino, body_compact, buttons)
-    ctx = _load_ctx(user_id) or {}
-    _set_last_menu(user_id, ctx, menu_type="buttons", body=body_compact, items=buttons)
-    # Marca envio para debouncing
+    send_button_message_pairs(destino, text, buttons)
+    send_button_message_pairs(destino, text, buttons)
+    _set_last_menu(user_id, _load_ctx(user_id) or {}, menu_type="buttons", body=text, items=buttons)
     try:
         ctx["intro_sent_at"] = _now()
         _save_ctx(user_id, ctx)
@@ -1537,6 +1530,8 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
 
 
 
