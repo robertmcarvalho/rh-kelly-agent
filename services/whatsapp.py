@@ -77,11 +77,20 @@ def _load_intro_script() -> Dict[str, Any]:
     return _INTRO_SCRIPT
 
 def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
-    """Sends an intro message to the user."""
+    """Sends an intro message to the user (debounced)."""
     script = _load_intro_script()
     intro_messages = script.get("intro", [])
     if not (0 < idx <= len(intro_messages)):
         return
+
+    # Debounce para evitar duplicidade em reentregas do webhook
+    _ctx0 = _load_ctx(user_id) or {}
+    try:
+        _last = float(_ctx0.get("intro_sent_at") or 0.0)
+        if _now() - _last < 10.0:
+            return
+    except Exception:
+        pass
 
     safe_name = str(nome or "candidato(a)").strip()
     first_name = safe_name.split()[0] if safe_name else "candidato(a)"
@@ -106,14 +115,12 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     _fallback_next = "Avancar"
     body_compact = "Deseja prosseguir?" if idx == len(intro_messages) else str(next_label or _fallback_next)
     send_button_message_pairs(destino, body_compact, buttons)
-    ctx = _load_ctx(user_id)
+    ctx = _load_ctx(user_id) or {}
     _set_last_menu(user_id, ctx, menu_type="buttons", body=body_compact, items=buttons)
-    # Dica única após a primeira saudação
+    # Marca envio para debouncing
     try:
-        if idx == 1 and not bool(ctx.get("welcome_hint_shown")):
-            send_text_message(destino, "Dica: voce pode digitar 'ajuda' para uma dica da etapa, ou 'comandos' para ver a lista de atalhos.")
-            ctx["welcome_hint_shown"] = True
-            _save_ctx(user_id, ctx)
+        ctx["intro_sent_at"] = _now()
+        _save_ctx(user_id, ctx)
     except Exception:
         pass
 
