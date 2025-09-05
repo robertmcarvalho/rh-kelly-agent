@@ -596,6 +596,7 @@ def _handle_city_selection_reject(destino: str, user_id: str, selected: str) -> 
     ctx["stage"] = "final"
     _save_ctx(user_id, ctx)
     return {"handled": True}
+
 def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
     if ctx is None:
         ctx = _load_ctx(user_id) or {}
@@ -820,7 +821,8 @@ def _save_lead_record(user_id: str) -> None:
                     "DATA_ISO": iso,
                     "NOME": row.get("nome"),
                     "TELEFONE": row.get("user_id"),
-                    "PERFIL_APROVADO": "Sim" if aprovado else "N�o",
+                    "PERFIL_APROVADO": "Sim" if aprovado else "N\u00e3o",
+                    "PERFIL_APROVADO": "Sim" if aprovado else "N\u00e3o",
                     "PERFIL_NOTA": score,
                     "PROTOCOLO": protocolo,
                     "TURNO_ESCOLHIDO": turno,
@@ -1533,6 +1535,11 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+
+
+
 
 
 
