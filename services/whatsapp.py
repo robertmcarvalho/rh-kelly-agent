@@ -575,7 +575,9 @@ def _handle_city_selection_reject(destino: str, user_id: str, selected: str) -> 
     _save_lead_record(user_id)
     ctx["stage"] = "final"
     _save_ctx(user_id, ctx)
-    return {"handled": True}def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
+    return {"handled": True}
+
+def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
     if ctx is None:
         ctx = _load_ctx(user_id) or {}
 
@@ -1512,6 +1514,8 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
 
 
 
