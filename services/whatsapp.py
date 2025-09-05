@@ -95,7 +95,7 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     if idx == len(intro_messages):
         buttons = [("Sim", "Sim"), ("Não", "Não")]
     else:
-        buttons = [("intro_next", next_label)]
+        buttons = [("intro_next", next_label), ("ajuda", "Ajuda")]
 
     # Envia o texto longo e, em seguida, um corpo compacto com botões,
     # evitando que 'ajuda/menu' reenviem o texto longo da introducao.
