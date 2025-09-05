@@ -97,9 +97,29 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     else:
         buttons = [("intro_next", next_label)]
 
-    send_button_message_pairs(destino, text, buttons)
+    # Envia o texto longo primeiro e, em seguida, um corpo compacto com botões.
+    # Isso evita que o "ajuda/menu" reenvie o texto longo da introdução.
+    try:
+        send_text_message(destino, text)
+    except Exception:
+        pass
+    # Corpo compacto para os botões
+    _fallback_next = "Avancar"
+    body_compact = ("Deseja prosseguir?" if idx == len(intro_messages) else str(next_label or _fallback_next))
+    send_button_message_pairs(destino, body_compact, buttons)
     ctx = _load_ctx(user_id)
-    _set_last_menu(user_id, ctx, menu_type="buttons", body=text, items=buttons)
+    _set_last_menu(user_id, ctx, menu_type="buttons", body=body_compact, items=buttons)
+    # Dica única após a primeira saudação
+    try:
+        if idx == 1 and not bool(ctx.get("welcome_hint_shown")):
+            send_text_message(
+                destino,
+                "Dica: voce pode digitar 'ajuda' para uma dica da etapa, ou 'comandos' para ver a lista de atalhos."
+            )
+            ctx["welcome_hint_shown"] = True
+            _save_ctx(user_id, ctx)
+    except Exception:
+        pass
 
 def _handle_intro_action(destino: str, user_id: str, action: str) -> None:
     """Handles the user's action during the intro."""
@@ -575,17 +595,18 @@ def _handle_city_selection_reject(destino: str, user_id: str, selected: str) -> 
     _save_lead_record(user_id)
     ctx["stage"] = "final"
     _save_ctx(user_id, ctx)
-    return {"handled": True}def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
+    return {"handled": True}
+def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = None, prompt: Optional[str] = None) -> None:
     if ctx is None:
         ctx = _load_ctx(user_id) or {}
 
     cache = _get_cities_cached()
     cities = cache.get("items", []) or []
     if not cities:
-        send_text_message(destino, "No momento, não consegui obter as cidades com vagas.")
+        send_text_message(destino, "No momento, nao consegui obter as cidades com vagas.")
         return
     nome = ctx.get("nome", "candidato(a)")
-    pergunta = prompt or ("Antes de come??armos, preciso saber: \\n" "Em qual cidade vocG atua como entregador?\\n" "Selecione no menu abaixo")
+    pergunta = prompt or ("Antes de comecarmos, preciso saber: \n" "Em qual cidade voce atua como entregador?\n" "Selecione no menu abaixo")
     pairs = [(c, c) for c in cities]
     if len(cities) > 3:
         send_list_message_rows(destino, pergunta, pairs, botao="Ver cidades")
@@ -1512,6 +1533,7 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 
 
