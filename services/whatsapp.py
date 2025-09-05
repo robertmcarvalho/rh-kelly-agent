@@ -97,9 +97,25 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     else:
         buttons = [("intro_next", next_label)]
 
-    send_button_message_pairs(destino, text, buttons)
+    # Envia o texto longo e, em seguida, um corpo compacto com botões,
+    # evitando que 'ajuda/menu' reenviem o texto longo da introducao.
+    try:
+        send_text_message(destino, text)
+    except Exception:
+        pass
+    _fallback_next = "Avancar"
+    body_compact = "Deseja prosseguir?" if idx == len(intro_messages) else str(next_label or _fallback_next)
+    send_button_message_pairs(destino, body_compact, buttons)
     ctx = _load_ctx(user_id)
-    _set_last_menu(user_id, ctx, menu_type="buttons", body=text, items=buttons)
+    _set_last_menu(user_id, ctx, menu_type="buttons", body=body_compact, items=buttons)
+    # Dica única após a primeira saudação
+    try:
+        if idx == 1 and not bool(ctx.get("welcome_hint_shown")):
+            send_text_message(destino, "Dica: voce pode digitar 'ajuda' para uma dica da etapa, ou 'comandos' para ver a lista de atalhos.")
+            ctx["welcome_hint_shown"] = True
+            _save_ctx(user_id, ctx)
+    except Exception:
+        pass
 
 def _handle_intro_action(destino: str, user_id: str, action: str) -> None:
     """Handles the user's action during the intro."""
