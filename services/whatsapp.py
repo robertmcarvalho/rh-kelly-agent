@@ -83,11 +83,18 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     if not (0 < idx <= len(intro_messages)):
         return
 
-    # Debounce para evitar duplicidade em reentregas do webhook
+    # Debounce apenas para reenvio do MESMO passo (idx) em curto intervalo
     _ctx0 = _load_ctx(user_id) or {}
     try:
-        _last = float(_ctx0.get("intro_sent_at") or 0.0)
-        if _now() - _last < 10.0:
+        last_idx = int(_ctx0.get("intro_last_idx") or 0)
+    except Exception:
+        last_idx = 0
+    try:
+        last_at = float(_ctx0.get("intro_last_sent_at") or 0.0)
+    except Exception:
+        last_at = 0.0
+    try:
+        if last_idx == idx and (_now() - last_at) < 10.0:
             return
     except Exception:
         pass
@@ -106,14 +113,15 @@ def send_intro_message(destino: str, user_id: str, idx: int, nome: str) -> None:
     else:
         buttons = [("intro_next", next_label)]
 
-    # Envia o texto longo e, em seguida, um corpo compacto com botões,
-    # evitando que 'ajuda/menu' reenviem o texto longo da introducao.
-    send_button_message_pairs(destino, text, buttons)
+    # Envia apenas uma mensagem com texto longo e botão "Avançar" (ou Sim/Não no fim).
+    # Remove duplicidade e respeita debounce por passo.
     send_button_message_pairs(destino, text, buttons)
     _set_last_menu(user_id, _load_ctx(user_id) or {}, menu_type="buttons", body=text, items=buttons)
+    # Atualiza timestamp de envio para debounce
     try:
-        ctx["intro_sent_at"] = _now()
-        _save_ctx(user_id, ctx)
+        _ctx0["intro_last_idx"] = int(idx)
+        _ctx0["intro_last_sent_at"] = _now()
+        _save_ctx(user_id, _ctx0)
     except Exception:
         pass
 
