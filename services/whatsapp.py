@@ -612,6 +612,12 @@ def _send_city_menu(destino: str, user_id: str, ctx: Optional[Dict[str, Any]] = 
         return
     nome = ctx.get("nome", "candidato(a)")
     pergunta = prompt or ("Antes de come??armos, preciso saber: \\n" "Em qual cidade vocG atua como entregador?\\n" "Selecione no menu abaixo")
+    # Ajuste de prompt com acentuação correta para exibição no WhatsApp
+    pergunta = prompt or (
+        "Antes de começarmos, preciso saber:\n"
+        "Em qual cidade você atua como entregador?\n"
+        "Selecione no menu abaixo"
+    )
     pairs = [(c, c) for c in cities]
     if len(cities) > 3:
         send_list_message_rows(destino, pergunta, pairs, botao="Ver cidades")
