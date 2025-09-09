@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "GoogleCloudTools.cloudcode",
+    "ms-azuretools.vscode-docker",
+    "GitHub.vscode-pull-request-github",
+    "eamodio.gitlens",
+    "humao.rest-client",
+    "GraphQL.vscode-graphql",
+    "GraphQL.vscode-graphql-syntax",
+    "mtxr.sqltools",
+    "mtxr.sqltools-driver-pg",
+    "cweijan.vscode-redis-client"
+  ]
+}
+
