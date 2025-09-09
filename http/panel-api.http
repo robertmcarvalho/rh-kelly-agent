@@ -1,0 +1,27 @@
+### Health
+GET https://coopmob-panel-api-713561463013.us-central1.run.app/health
+
+### Upsert lead
+POST https://coopmob-panel-api-713561463013.us-central1.run.app/api/leads
+Content-Type: application/json
+
+{
+  "phone": "5511999999999",
+  "name": "Teste Lead",
+  "city": "Uberlandia",
+  "source": "whatsapp"
+}
+
+### Signed URL (replace TOKEN below with INTERNAL_API_TOKEN)
+POST https://coopmob-panel-api-713561463013.us-central1.run.app/api/upload/signed-url
+Content-Type: application/json
+Authorization: Bearer TOKEN
+
+{
+  "lead_id": 1,
+  "kind": "CNH",
+  "filename": "cnh.jpg",
+  "mode": "upload",
+  "content_type": "image/jpeg"
+}
+
