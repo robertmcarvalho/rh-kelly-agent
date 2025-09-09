@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM node:20-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache libc6-compat
 COPY package.json ./
 RUN npm install
 
