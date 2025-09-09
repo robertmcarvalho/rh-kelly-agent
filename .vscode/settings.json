@@ -1,0 +1,23 @@
+{
+  "sqltools.useNodeRuntime": true,
+  "sqltools.connections": [
+    {
+      "name": "coopmob-postgres",
+      "driver": "PostgreSQL",
+      "previewLimit": 50,
+      "server": "<host>",
+      "port": 5432,
+      "database": "<db>",
+      "username": "<user>",
+      "password": "<password>",
+      "connectionTimeout": 30
+    }
+  ],
+  "rest-client.environmentVariables": {
+    "$shared": {
+      "PANEL_API_BASE": "https://coopmob-panel-api-713561463013.us-central1.run.app",
+      "INTERNAL_API_TOKEN": "<set-token>"
+    }
+  }
+}
+
